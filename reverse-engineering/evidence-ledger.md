@@ -137,3 +137,38 @@ This ledger records every verified finding, observed binary behavior, and archit
     ```
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
+---
+
+### FIND-009: Hardware GPU Job Submission & Interrupt Verification
+- **Description**: GPU command streams submitted from userspace via `glFinish()` directly trigger hardware job execution on the physical Mali-G71 Job Manager, independently proven by hardware interrupts on line 57 of `/proc/interrupts` (`11500000.mali`, GIC 191 Edge).
+- **Supporting Evidence**:
+  - Executed `tests/egl_offscreen_test` on physical hardware (`SM-A305F`).
+  - Baseline Mali Job Interrupt count across all CPU cores before rendering: `11554933`.
+  - Post-render Mali Job Interrupt count after `glFinish()`: `11554935`.
+  - Net IRQ delta: `+2` (corresponding to vertex and fragment job executions on the hardware Job Slot).
+  - Physical GPU identification confirmed via GLES query: `GL_RENDERER = Mali-G71`, `GL_VENDOR = ARM`, `GL_VERSION = OpenGL ES 3.2 v1.r26p0-01eac0.###other-sha0123456789ABCDEF0###`.
+- **Source / Artifact**: Live physical SM-A305F target device / `tests/egl_offscreen_test`.
+- **Location**: `/proc/interrupts` (line 57, `11500000.mali`).
+- **Confidence Level**: Confirmed Fact (100%).
+- **Verification Procedure**: Polling line 57 of `/proc/interrupts` before and after `glFinish()` during dual-zone shader rendering.
+- **Status**: **Verified**.
+
+---
+
+### FIND-010: Headless EGL Pbuffer Execution & Platform Discard Behavior
+- **Description**: The proprietary Samsung/ARM Mali DDK (`libGLES_mali-64.so`) rejects `EGL_PLATFORM_SURFACELESS_MESA` (`0x31DC`) with `EGL_BAD_PARAMETER` (`0x300C`), but fully accepts `EGL_PLATFORM_ANDROID_KHR` (`0x3141`) and standard `eglGetDisplay(EGL_DEFAULT_DISPLAY)`. Furthermore, `eglCreatePbufferSurface` bypasses Android `ANativeWindow`, Gralloc, and display server interactions entirely, creating an unshared offscreen framebuffer directly in GPU memory.
+- **Supporting Evidence**:
+  - Disassembly of `_ZL11new_displayPvS_PKi` (`0x774ca0`): returns `EGL_NO_DISPLAY` if `native_display != NULL`, but allocates a 16-byte internal winsys structure if `native_display == 0`.
+  - Disassembly of `eglCreatePbufferSurface` (`0x78021c`): passes `native_window = NULL` (`xzr`) directly to `eglp_create_surface`.
+  - Successful execution of `tests/egl_offscreen_test`:
+    - EGL 1.4 initialized with 25 configs.
+    - 64x64 RGBA8888 Pbuffer created and bound to GLES 2.0/3.2 context without an active display server or Android SurfaceFlinger interaction.
+    - Shader pipeline rendered Cornflower Blue clear (`RGBA(100, 149, 237, 255)`) and Red Triangle (`RGBA(255, 0, 0, 255)`).
+    - Pixel readback via `glReadPixels` matched mathematical ground truth with 0 LSB discrepancy.
+- **Source / Artifact**: `artifacts/proprietary/libGLES_mali-64.so` / physical execution on SM-A305F.
+- **Location**: Functions `_ZL11new_displayPvS_PKi` @ `0x774ca0`, `eglCreatePbufferSurface` @ `0x78021c` in `libGLES_mali-64.so`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Verification Procedure**: Execution of `tests/egl_offscreen_test` on physical target; pixel readback inspection and disassembly analysis.
+- **Status**: **Verified**.
+

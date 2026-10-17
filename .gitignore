@@ -2,8 +2,14 @@
 artifacts/proprietary/*.so
 artifacts/extracted/*.dtb
 artifacts/extracted/*.gz
+artifacts/extracted/sysroot/
+
+# Compiled test binaries
+tests/kbase_probe
+tests/egl_offscreen_test
 
 # Temporary / build files
 *.pyc
 __pycache__/
 .cache/
+

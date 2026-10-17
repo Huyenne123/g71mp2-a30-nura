@@ -78,7 +78,7 @@ This log chronicles engineering steps, binary analysis sessions, hardware interr
 
 ---
 
-### Summary of Completed Files
+### Summary of Completed Files (Session 1)
 - `.gitignore`: Excludes proprietary `.so` and binary dumps from git.
 - `artifacts/MANIFEST.md`: Cryptographic provenance ledger.
 - `HARDWARE.md`: Verified hardware specification.
@@ -87,3 +87,76 @@ This log chronicles engineering steps, binary analysis sessions, hardware interr
 - `architecture/ADR-001-graphics-stack-feasibility.md`: Architecture decision record.
 - `ROADMAP.md`: Phased project roadmap.
 - `PROJECT_STATUS.md`: Active project status.
+
+---
+
+## Session: 2026-10-17 — Session 2: Milestone 3A - Proprietary EGL Offscreen Validation
+
+### Objectives
+1. Inspect existing `tests/kbase_probe.c` and verify kernel handshake and memory management against `/dev/mali0`.
+2. Analyze complete dynamic ELF dependencies and undefined symbols of `libGLES_mali-64.so`.
+3. Reverse-engineer internal EGL initialization paths, platform dispatch, and Pbuffer creation in the proprietary DDK.
+4. Build freestanding AArch64 Android test compilation toolchain using host `clang` and target Bionic sysroot.
+5. Create and execute `tests/egl_offscreen_test` on physical hardware (`SM-A305F`) without a display server.
+6. Verify shader compilation, dual-zone pixel rendering, and independent hardware interrupt generation (Mali Job IRQ).
+7. Author Milestone 3A documentation and update evidence ledger.
+
+---
+
+### Chronological Log & Observations
+
+#### 1. Low-Level Kernel Verification Probe (`kbase_probe`)
+- Built `tests/kbase_probe` as a freestanding static ARM64 binary using raw system calls (`svc #0`).
+- Discovered and verified FIND-007: `mali_kbase` strictly mandates mapping the Memory Tracking Page (`0x3000`, `PROT_NONE`, `MAP_SHARED`) prior to `KBASE_IOCTL_MEM_ALLOC` (`0xc0208005`).
+- Discovered and verified FIND-008: SVM memory unmapping occurs via userspace `munmap()`, while non-SVM buffers use ioctl `0x40088007`.
+- Executed `tests/kbase_probe` on physical device:
+  - Version check: Major = 11, Minor = 27 (SUCCESS).
+  - Context ID allocated: 31 (SUCCESS).
+  - Allocation and deallocation: 1 page committed, freed cleanly.
+
+#### 2. ELF Dependency & Symbol Analysis
+- Extracted all 621 relocation entries resolving to 391 unique undefined symbols in `libGLES_mali-64.so`.
+- Categorized all 8 `DT_NEEDED` shared libraries (`libc.so`, `libm.so`, `libdl.so`, `libc++.so`, `liblog.so`, `libz.so`, `libnativewindow.so`, `libion_exynos.so`).
+- Analyzed vendor dependencies:
+  - `libion_exynos.so`: Only 3 functions imported (`exynos_ion_open`, `exynos_ion_alloc`, `exynos_ion_close`). Never reached during Pbuffer offscreen rendering.
+  - `libnativewindow.so`: Only 5 `AHardwareBuffer_*` functions imported for Vulkan/EGLImage.
+- Contrasted Bionic libc vs Alpine musl libc ABI: `__errno` vs `__errno_location`, Bionic FORTIFY checking (`__open_2`, `__*_chk`), `pthread_t` layout differences, TLS model.
+- Authored `analysis/milestone-3a-elf-dependencies.md`.
+
+#### 3. EGL Initialization Path Reverse Engineering
+- Disassembled `eglGetDisplay`, `egl_winsys_get_implementation`, and `_ZL11new_displayPvS_PKi` (`0x774ca0`):
+  - Proved that passing non-zero `native_display` returns `EGL_NO_DISPLAY` with `"mali_winsys: Unsupported display"`.
+  - Passing `EGL_DEFAULT_DISPLAY` (`0`) allocates 16-byte winsys display structure and succeeds without any display server.
+- Disassembled `eglCreatePbufferSurface` (`0x78021c`):
+  - Sets `native_window = NULL` (`xzr`) and surface type `EGL_PBUFFER_BIT` (`1`), branching directly to `eglp_create_surface` (`0x78183c`).
+  - No `ANativeWindow` or SurfaceFlinger IPC is attempted.
+- Established finding FIND-010.
+
+#### 4. End-to-End Headless EGL Test Execution (`egl_offscreen_test`)
+- Authored `tests/egl_offscreen_test.c` featuring:
+  - Freestanding Bionic `_start` entry point.
+  - Dynamic loading of `/vendor/lib64/egl/libGLES_mali.so`.
+  - Platform probing (`EGL_PLATFORM_SURFACELESS_MESA` rejected with `0x300C`; `EGL_PLATFORM_ANDROID_KHR` accepted).
+  - EGL 1.4 initialization (`ARM`, `1.4 Bifrost-"r26p0-01eac0"`).
+  - Pbuffer configuration enumeration (25 configs; selected RGBA8888).
+  - 64x64 offscreen Pbuffer surface allocation.
+  - OpenGL ES 2.0/3.2 context creation and binding.
+  - Hardware query: confirmed `GL_RENDERER = Mali-G71`, `GL_VENDOR = ARM`, `GL_VERSION = OpenGL ES 3.2 v1.r26p0-01eac0`.
+  - Hardware Job Interrupt tracking: queried `/proc/interrupts` line 57 (`11500000.mali` GIC 191 Edge). Baseline count: `11554933`.
+  - Dual-zone rendering:
+    - Background Clear: Cornflower Blue `RGBA(100, 149, 237, 255)`.
+    - Centered Geometry: Red Triangle `RGBA(255, 0, 0, 255)` via compiled vertex/fragment shader.
+  - `glFinish()`: post-render interrupt count `11554935` (`delta = +2`), confirming physical hardware job execution.
+  - `glReadPixels`:
+    - Background `(0, 0)` returned `RGBA(100, 149, 237, 255)`.
+    - Center `(32, 32)` returned `RGBA(255, 0, 0, 255)`.
+  - Clean teardown executed without error.
+- Established finding FIND-009.
+
+#### 5. Documentation & Deliverables
+- Authored `analysis/milestone-3a-elf-dependencies.md`.
+- Authored `analysis/milestone-3a-test-plan.md`.
+- Authored `tests/README.md`.
+- Updated `reverse-engineering/evidence-ledger.md` with FIND-009 and FIND-010.
+- Updated `PROJECT_STATUS.md`.
+

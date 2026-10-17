@@ -16,6 +16,8 @@ All proprietary binaries were pulled from a physical Samsung Galaxy A30 (SM-A305
 | `gralloc-32.so` | `/vendor/lib/hw/gralloc.exynos7904.so` | ARM 32-bit (EABI5) | 63,332 | `e40ebdc3fd229eb686fed6deb89bf0ad790b1a7cb3aab42f24fe189fe6c08ac6` | Stripped | `gralloc.exynos7904.so` | `2004fbccfa5175be46511263facc110c` |
 | `hwcomposer-64.so` | `/vendor/lib64/hw/hwcomposer.exynos7904.so` | ARM AArch64 | 64,312 | `4fa06e6fcbbebc83aef6fb3c1fe2f6cade7cf9ac68c71717a5322ad6e9c186a3` | Stripped | `hwcomposer.exynos7904.so` | `ba6c23fc71a00f2924e778c3a80e218c` |
 | `hwcomposer-32.so` | `/vendor/lib/hw/hwcomposer.exynos7904.so` | ARM 32-bit (EABI5) | 52,980 | `7f9e636212df439e7d7f68487520e0998eab56e1d59dbef28ca13d751e7004a4` | Stripped | `hwcomposer.exynos7904.so` | `b4fb246e29a7736324ddf27ad7581ebc` |
+| `libion_exynos.so` | `/vendor/lib64/libion_exynos.so` | ARM AArch64 | 19,752 | `739817dcc2cc3e8caba5fe666f13c8f1516e4c1f56ec8e2180cda2db5a4c08e1` | Stripped | `libion_exynos.so` | `0a8b27866f6c0fda08c277ed35213a6c` |
+
 
 ### Detailed Binary Characteristics
 
@@ -81,8 +83,9 @@ The following external artifacts are not stored locally in this repo and represe
 
 1. **Downstream Kernel Source**: Full source tree matching `4.4.302-p6-neyuKernel_legacy` (or upstream open-source Eureka kernel `Chatur27/Eureka-Kernel-Exynos7885-Q-R` / `eurekadevelopment/Eureka-Kernel`).
 2. **Proprietary Helper Libraries (for libhybris pathway)**:
-   - `/vendor/lib64/libion_exynos.so` (Samsung proprietary ION wrapper)
+   - `/vendor/lib64/libion_exynos.so` (**Acquired & cataloged above**)
    - `/vendor/lib64/libexynosdisplay.so` (Samsung DECON display abstraction)
    - `/vendor/lib64/libacryl.so` (Samsung 2D blitter / scaler HAL)
 3. **Upstream Mesa Source**: Upstream Mesa Git checkout containing `src/panfrost` (tested revision: main / 24.x+).
 4. **Upstream Linux DRM Panfrost Tree**: Linux kernel 6.x+ with `drivers/gpu/drm/panfrost/` and mainline Exynos DTS for 7885.
+
