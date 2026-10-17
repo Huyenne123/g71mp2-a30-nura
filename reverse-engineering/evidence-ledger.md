@@ -238,4 +238,49 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
+
+### FIND-016: ION DMA-BUF Direct Allocation & Export Protocol
+- **Description**: Samsung Exynos ION (`/dev/ion`, Major 10, Minor 127) supports allocating physical memory pages from `ion_noncontig_heap` (Heap Mask `1 << 0` = 1, uncached flags = 0) via `ION_IOC_ALLOC` (`0xc0204900`) and exporting them as standard Linux DMA-BUF file descriptors via `ION_IOC_SHARE` (`0xc0084904`). Releasing the userspace ION handle via `ION_IOC_FREE` (`0xc0044901`) maintains buffer lifetime through kernel DMA-BUF reference counting.
+- **Supporting Evidence**:
+  - Standalone execution of `tests/ion_mali_import_test` on physical SM-A305F target device.
+  - Successfully allocated 16,384 bytes (handle `0x1`) and exported to DMA-BUF descriptor `dma_buf_fd = 4`.
+  - Mapped directly into CPU memory via `mmap(NULL, len, PROT_READ, MAP_SHARED, 4, 0)` at `0x70230c4000`.
+- **Source / Artifact**: Live physical SM-A305F target device / `tests/ion_mali_import_test`.
+- **Location**: `/dev/ion`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Verification Procedure**: Direct execution of `tests/ion_mali_import_test` on physical hardware.
+- **Status**: **Verified**.
+
+---
+
+### FIND-017: EGLImage DMA-BUF Import & FBO Hardware Render-Target Validation
+- **Description**: An externally allocated ION DMA-BUF can be imported directly into the proprietary Mali-G71 GPU driver and utilized as a zero-copy 3D rendering color attachment. Low-level kernel import succeeds via `KBASE_IOCTL_MEM_IMPORT` (`0xc0188016`, `struct kbase_ioctl_mem_import` with `type = 2`, `flags = 0x80f`, `phandle = &dma_buf_fd`), assigning GPU VA `0x41000`. Userspace import succeeds via `eglCreateImageKHR` with `EGL_LINUX_DMA_BUF_EXT` (`0x3270`) and `DRM_FORMAT_ABGR8888` (`0x34324241`). Binding this image to a `GL_TEXTURE_2D` and attaching to `GL_COLOR_ATTACHMENT0` yields `GL_FRAMEBUFFER_COMPLETE` (`0x8CD5`). Direct CPU memory readback of GPU-rendered pixels confirms exact byte-for-byte ground truth (`[0]=0x00, [1]=0xff, [2]=0x40, [3]=0xff` / Lime Green).
+- **Supporting Evidence**:
+  - `tests/ion_mali_import_test` execution on physical hardware:
+    - Kernel import assigned GPU VA `0x41000`, flags `0x500f`.
+    - `eglCreateImageKHR` returned handle `0x717312f028`.
+    - `glCheckFramebufferStatus` returned `0x8cd5`.
+    - `glClearColor(0.0f, 1.0f, 0.25f, 1.0f)` + `glFinish()` completed.
+    - CPU `mmap()` of `dma_buf_fd` verified exact pixel values without calling `glReadPixels`.
+- **Source / Artifact**: Live physical SM-A305F target device / `tests/ion_mali_import_test`.
+- **Location**: `/vendor/lib64/egl/libGLES_mali.so`, `/dev/mali0`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Verification Procedure**: Physical execution and byte comparison of CPU-mapped DMA-BUF memory.
+- **Status**: **Verified**.
+
+---
+
+### FIND-018: DECON Presentation Arbitration & HWC2 Coexistence Boundary
+- **Description**: The Samsung DECON display driver (`/dev/graphics/fb0`) programs IDMA scanout windows via `S3CFB_WIN_CONFIG` (`0x441046d1`, 1040 bytes) accepting DMA-BUF file descriptors (`fd_idma[0]`) and sync fences (`fence_fd`). Because the driver lacks atomic DRM/KMS master lease arbitration, concurrent presentation while Android's `composer@2.1-service` (PID 3935) is actively compositing causes tearing, frame drops, or crashes `HWCWatchdogThread`. Standalone presentation requires exclusive access (either stopping Android graphics services or running under native postmarketOS / Alpine where Android daemons are absent).
+- **Supporting Evidence**:
+  - Disassembly of `ExynosDisplayFbInterface::deliverWinConfigData` (`0x70194`) in `libexynosdisplay.so`.
+  - Process audit confirms PID 3935 holds exclusive continuous write control of `/dev/graphics/fb0`.
+  - Documented recovery procedure verified: `stop surfaceflinger; stop vendor.hwcomposer-2-1` -> standalone scanout -> `start vendor.hwcomposer-2-1; start surfaceflinger`.
+- **Source / Artifact**: `artifacts/proprietary/libexynosdisplay.so` / `/dev/graphics/fb0`.
+- **Location**: `/dev/graphics/fb0`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+
 

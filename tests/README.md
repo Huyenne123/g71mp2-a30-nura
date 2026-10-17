@@ -12,6 +12,7 @@ This directory contains standalone, reproducible test harnesses designed to vali
 | `egl_offscreen_test.c` | `egl_offscreen_test` | Userspace EGL/GLES | Validates headless EGL initialization, Pbuffer allocation, shader pipeline execution, hardware job IRQ, and dual-zone pixel readback. | Bionic `libc.so`, `libdl.so` |
 | `fb_probe.c` | `fb_probe` | Display ABI (`/dev/graphics/fb0`) | Inspects DECON FB geometry, pixel bitfields, stride, smem parameters, and probes mmap compatibility. | **None** (Freestanding, raw AArch64 syscalls) |
 | `fb_present_test.c` | `fb_present_test` | Display Presentation | Renders offscreen EGL pattern, adapts RGBA to target BGRA8888 with stride, performs scanout safety assessment, and saves test frame. | Bionic `libc.so`, `libdl.so` |
+| `ion_mali_import_test.c` | `ion_mali_import_test` | Buffer Sharing & Render Target | Allocates ION DMA-BUF, performs low-level Kbase import, binds EGLImage to FBO, executes 3D GPU render, and verifies via CPU mmap. | Bionic `libc.so`, `libdl.so` |
 
 
 ---
@@ -219,12 +220,80 @@ adb shell "su -c /data/local/tmp/fb_present_test"
 
 ---
 
-## 5. Isolation & Non-Destructive Operation Guarantee
+## 5. `ion_mali_import_test`: End-to-End Shared Buffer Allocation, Import & 3D Render
+
+### Description
+`ion_mali_import_test.c` validates the complete cross-subsystem buffer sharing pipeline on physical hardware:
+1. Opens `/dev/ion`, allocates physical backing memory from `ion_noncontig_heap` (Heap Mask 1, flags 0), and exports a standard Linux DMA-BUF file descriptor (`dma_buf_fd`).
+2. Issues `KBASE_IOCTL_MEM_IMPORT` (`0xc0188016`) with `BASE_MEM_IMPORT_TYPE_UMM` (type 2) directly to `/dev/mali0`, confirming low-level kernel page table mapping and GPU VA assignment.
+3. Initializes proprietary EGL 1.4 context on Mali-G71.
+4. Imports the DMA-BUF descriptor into EGL via `EGL_EXT_image_dma_buf_import` (`eglCreateImageKHR` with `DRM_FORMAT_ABGR8888`).
+5. Binds the `EGLImageKHR` to a `GL_TEXTURE_2D` via `glEGLImageTargetTexture2DOES` and attaches it to an FBO (`GL_FRAMEBUFFER_COMPLETE`).
+6. Executes 3D GPU clear rendering to Lime Green `RGBA(0, 255, 64, 255)` and flushes pipeline via `glFinish()`.
+7. Maps the DMA-BUF descriptor directly into CPU memory via `mmap()` (independent of OpenGL) and verifies raw pixel bytes (`0x00, 0xff, 0x40, 0xff`), proving direct hardware GPU rendering into shared memory.
+
+### Building `ion_mali_import_test`
+```bash
+clang --target=aarch64-linux-android -fuse-ld=lld -nostdlib -pie -ffreestanding \
+  -Wl,-dynamic-linker,/system/bin/linker64 \
+  -Lartifacts/extracted/sysroot -lc -ldl \
+  tests/ion_mali_import_test.c -o tests/ion_mali_import_test
+```
+
+### Running `ion_mali_import_test` on Device
+```bash
+adb push tests/ion_mali_import_test /data/local/tmp/ion_mali_import_test
+adb shell chmod +x /data/local/tmp/ion_mali_import_test
+adb shell "su -c /data/local/tmp/ion_mali_import_test"
+```
+
+### Expected Output
+```text
+================================================================
+ Milestone 4A: ION DMA-BUF Allocation, Kbase & EGL Import Test
+================================================================
+
+[*] Step 1: Allocating buffer from Samsung Exynos ION (/dev/ion)...
+[+] ION_IOC_ALLOC succeeded! Allocated handle: 0x1 (16384 bytes)
+[+] ION_IOC_SHARE succeeded! Exported DMA-BUF fd: 4
+
+[*] Step 2: Directly importing DMA-BUF into /dev/mali0 (mali_kbase)...
+[+] KBASE_IOCTL_MEM_IMPORT SUCCESS!
+    Assigned GPU Virtual Address : 0x41000
+    Updated Flags / Handle       : 0x500f
+
+[*] Step 3: Initializing EGL & GLES on Mali-G71...
+[+] Context created and active on Mali-G71!
+
+[*] Step 4: Creating EGLImage from ION DMA-BUF fd (4)...
+[+] eglCreateImageKHR SUCCESS! Image handle: 0x...
+
+[*] Step 5: Binding EGLImage to FBO render-target...
+[+] Framebuffer COMPLETE (status = 0x8cd5)! Target is GPU-renderable!
+
+[*] Step 6: Rendering Test Color into Shared DMA-BUF via Mali GPU...
+[+] GPU rendering finished and flushed!
+
+[*] Step 7: Verifying Shared DMA-BUF content directly from CPU memory...
+[+] Direct CPU mmap of DMA-BUF succeeded at 0x...
+    Raw CPU Bytes at Pixel (0,0): [0]=0x00 (0), [1]=0xff (255), [2]=0x40 (64), [3]=0xff (255)
+[+] SUCCESS: CPU readback matches GPU rendered pattern inside shared ION DMA-BUF!
+[+] CONFIRMED: Hardware GPU rendering directly into shareable DMA-BUF verified on Mali-G71!
+
+[*] Step 8: Clean Teardown...
+[+] All Milestone 4A buffer allocation, import, and rendering tests PASSED!
+================================================================
+```
+
+---
+
+## 6. Isolation & Non-Destructive Operation Guarantee
 
 All test binaries operate under strict isolation constraints:
 - Executables are transferred solely to `/data/local/tmp/`.
 - Neither test writes to or modifies any file in `/system`, `/vendor`, or `/data`.
 - No Android system services or active graphics processes (`surfaceflinger`, `hwcomposer`) are restarted, killed, or disrupted.
 - Framebuffer writes are strictly validated and routed to offline test dumps to protect the live display.
-- GPU context and memory allocations are explicitly reclaimed upon process exit.
+- GPU context, DMA-BUF, and memory allocations are explicitly reclaimed upon process exit.
+
 

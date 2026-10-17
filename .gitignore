@@ -9,6 +9,7 @@ tests/kbase_probe
 tests/egl_offscreen_test
 tests/fb_probe
 tests/fb_present_test
+tests/ion_mali_import_test
 
 
 # Temporary / build files

@@ -62,15 +62,36 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 4: postmarketOS Integration & Display Enablement (Next)
-- [ ] Build minimal `libhybris` wrapper or Bionic micro-container for Alpine Linux.
-- [ ] Implement standalone DECON scanout bridge using ION DMA-BUFs and `S3CFB_WIN_CONFIG`.
-- [ ] Integrate with postmarketOS Wayland compositor (e.g. Weston HWC2 backend or KWin).
-
+## Milestone 4A: End-to-End DMA-BUF Render-Target Prototype (Completed)
+- [x] Reverse-engineer and validate Exynos ION allocation protocol (`ION_IOC_ALLOC`, `ION_IOC_SHARE`, `FIND-016`).
+- [x] Author and physically verify low-level kernel DMA-BUF import in `mali_kbase` (`KBASE_IOCTL_MEM_IMPORT`, GPU VA `0x41000`, `FIND-017`).
+- [x] Create `EGLImageKHR` via `EGL_EXT_image_dma_buf_import` and bind to FBO color attachment (`GL_FRAMEBUFFER_COMPLETE`).
+- [x] Execute 3D GPU clear rendering to Lime Green and verify via direct CPU `mmap()` readback (`0x00, 0xff, 0x40, 0xff`).
+- [x] Reverse-engineer DECON `S3CFB_WIN_CONFIG` (`0x441046d1`) structure layout and analyze HWC2 arbitration safety (`FIND-018`).
+- [x] Author analysis reports:
+  - `analysis/milestone-4a-ion-allocation.md`
+  - `analysis/milestone-4a-shared-render-target.md`
+  - `analysis/milestone-4a-decon-presentation.md`
+- [x] Deliver standalone reproducible test harness: `tests/ion_mali_import_test.c`.
 
 ---
 
-## Milestone 4: Mesa Panfrost Gap Analysis for Mali-G71 (Option A)
+## Milestone 4B: Standalone DECON Presentation Prototype (Next)
+- [ ] Implement standalone DECON scanout harness (`tests/decon_present_test.c`) driving `S3CFB_WIN_CONFIG`.
+- [ ] Validate full-screen (1080x2340) ION DMA-BUF allocation with native BGRA8888 pixel format.
+- [ ] Verify standalone presentation on physical screen using documented recovery mechanism (`stop surfaceflinger; stop vendor.hwcomposer-2-1`).
+- [ ] Validate frame synchronization fences (`fence_fd` / `retire_fence`).
+
+---
+
+## Milestone 4C: postmarketOS Integration & Libhybris Architecture
+- [ ] Build minimal `libhybris` wrapper or Bionic micro-container for Alpine Linux.
+- [ ] Port standalone DECON presentation engine to postmarketOS Wayland compositor (Weston / wlroots).
+- [ ] Validate hardware-accelerated Wayland client rendering on postmarketOS.
+
+---
+
+## Milestone 5: Mesa Panfrost Gap Analysis for Mali-G71 (Option A)
 - [ ] Audit Mesa `src/panfrost/` for all occurrences of `PAN_ARCH == 6` and `0x6000`.
 - [ ] Compare Mali-G71 instruction set encoding (Bifrost v6.0) with Mali-G72 (v6.2) and Mali-G52 (v7).
 - [ ] Identify missing hardware quirks in Mesa (e.g. coherency quirks, register banking, blend shader format differences).
