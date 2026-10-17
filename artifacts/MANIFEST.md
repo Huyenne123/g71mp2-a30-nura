@@ -17,6 +17,9 @@ All proprietary binaries were pulled from a physical Samsung Galaxy A30 (SM-A305
 | `hwcomposer-64.so` | `/vendor/lib64/hw/hwcomposer.exynos7904.so` | ARM AArch64 | 64,312 | `4fa06e6fcbbebc83aef6fb3c1fe2f6cade7cf9ac68c71717a5322ad6e9c186a3` | Stripped | `hwcomposer.exynos7904.so` | `ba6c23fc71a00f2924e778c3a80e218c` |
 | `hwcomposer-32.so` | `/vendor/lib/hw/hwcomposer.exynos7904.so` | ARM 32-bit (EABI5) | 52,980 | `7f9e636212df439e7d7f68487520e0998eab56e1d59dbef28ca13d751e7004a4` | Stripped | `hwcomposer.exynos7904.so` | `b4fb246e29a7736324ddf27ad7581ebc` |
 | `libion_exynos.so` | `/vendor/lib64/libion_exynos.so` | ARM AArch64 | 19,752 | `739817dcc2cc3e8caba5fe666f13c8f1516e4c1f56ec8e2180cda2db5a4c08e1` | Stripped | `libion_exynos.so` | `0a8b27866f6c0fda08c277ed35213a6c` |
+| `libexynosdisplay.so` | `/vendor/lib64/libexynosdisplay.so` | ARM AArch64 | 559,088 | `5fdcf9f6b8de018e3e0c5363b99c54873924028d86b6f57d78d27226dd13136c` | Stripped | `libexynosdisplay.so` | `38d7bf8a972e38c7154563a6a928ba56` |
+| `libacryl.so` | `/vendor/lib64/libacryl.so` | ARM AArch64 | 103,256 | `080181c1be271efbfb98f651a108acc65139f020cce1b33c284477fb6f878ac9` | Stripped | `libacryl.so` | `b1e2e92c6999908cf67414df688921be` |
+
 
 
 ### Detailed Binary Characteristics
@@ -84,8 +87,9 @@ The following external artifacts are not stored locally in this repo and represe
 1. **Downstream Kernel Source**: Full source tree matching `4.4.302-p6-neyuKernel_legacy` (or upstream open-source Eureka kernel `Chatur27/Eureka-Kernel-Exynos7885-Q-R` / `eurekadevelopment/Eureka-Kernel`).
 2. **Proprietary Helper Libraries (for libhybris pathway)**:
    - `/vendor/lib64/libion_exynos.so` (**Acquired & cataloged above**)
-   - `/vendor/lib64/libexynosdisplay.so` (Samsung DECON display abstraction)
-   - `/vendor/lib64/libacryl.so` (Samsung 2D blitter / scaler HAL)
+   - `/vendor/lib64/libexynosdisplay.so` (**Acquired & cataloged above**)
+   - `/vendor/lib64/libacryl.so` (**Acquired & cataloged above**)
 3. **Upstream Mesa Source**: Upstream Mesa Git checkout containing `src/panfrost` (tested revision: main / 24.x+).
 4. **Upstream Linux DRM Panfrost Tree**: Linux kernel 6.x+ with `drivers/gpu/drm/panfrost/` and mainline Exynos DTS for 7885.
+
 

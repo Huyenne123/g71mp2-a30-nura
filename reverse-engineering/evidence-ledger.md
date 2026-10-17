@@ -172,3 +172,70 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Verification Procedure**: Execution of `tests/egl_offscreen_test` on physical target; pixel readback inspection and disassembly analysis.
 - **Status**: **Verified**.
 
+---
+
+### FIND-011: DECON Framebuffer Geometry, Stride, and Channel Ordering
+- **Description**: The downstream DECON framebuffer (`/dev/graphics/fb0`) operates at a native resolution of 1080x2340 pixels, 32 bits per pixel, with a line stride of 4320 bytes (tightly packed, 0 padding). The hardware channel bitfield ordering is BGRA_8888 (Little-Endian ARGB): Blue at offset 0 (len 8), Green at offset 8 (len 8), Red at offset 16 (len 8), and Alpha at offset 24 (len 8).
+- **Supporting Evidence**:
+  - Interrogated `/dev/graphics/fb0` on physical SM-A305F via `tests/fb_probe` and `tests/fb_present_test`.
+  - `FBIOGET_VSCREENINFO` (`0x4600`): returned xres=1080, yres=2340, xres_virtual=1080, yres_virtual=2340, bpp=32, red=(16,8), green=(8,8), blue=(0,8), transp=(24,8).
+  - `FBIOGET_FSCREENINFO` (`0x4602`): line_length=4320, smem_len=20217600 (2 frames of 10,108,800 bytes).
+- **Source / Artifact**: Live physical SM-A305F target device / `tests/fb_probe`.
+- **Location**: `/dev/graphics/fb0` (`14860000.decon_f`).
+- **Confidence Level**: Confirmed Fact (100%).
+- **Verification Procedure**: `ioctl(fb_fd, FBIOGET_VSCREENINFO)` executed on target hardware.
+- **Status**: **Verified**.
+
+---
+
+### FIND-012: Rejection of Legacy FBDev Mmap on DECON Framebuffer
+- **Description**: Conventional Linux FBDev memory mapping (`mmap` on `/dev/graphics/fb0`) fails with error `-EINVAL` (-22) because the Samsung DECON driver does not allocate static scanout RAM at boot. The reported physical base address (`smem_start = 0x10000000`) is outside physical System RAM (`0x80000000 - 0x8bfffffff`).
+- **Supporting Evidence**:
+  - `mmap(NULL, smem_len, PROT_READ|PROT_WRITE, MAP_SHARED, fb_fd, 0)` returns error `-22` on physical SM-A305F.
+  - Target `/proc/iomem` confirms System RAM ranges: `80000000-bbbfffff`, `c0000000-ffffffff`, `880000000-8bfffffff`. Address `0x10000000` is invalid unmapped physical memory.
+  - Driver `decon_mmap` in kernel symbols rejects mapping attempts lacking a pre-allocated static buffer.
+- **Source / Artifact**: Physical execution of `tests/fb_probe` and `tests/fb_present_test` on SM-A305F.
+- **Location**: `/dev/graphics/fb0` / `/proc/iomem`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-013: DECON Multi-Window Presentation IOCTL Encoding
+- **Description**: Display scanout on Exynos 7904 is arbitrated through the proprietary multi-window overlay ioctl `S3CFB_WIN_CONFIG` (`0x441046d1`, `_IOW('F', 209, struct decon_win_config_data)`), which receives 7 hardware overlay window structures accepting DMA-BUF file descriptors (`fd_idma[0]`) and sync fences (`fence_fd`).
+- **Supporting Evidence**:
+  - Disassembly of `ExynosDisplayFbInterface::deliverWinConfigData` in `libexynosdisplay.so` (`0x703f4` - `0x7040c`):
+    `mov w1, #0x46d1; movk w1, #0x4410, lsl #16; bl ioctl`.
+  - Disassembly of `configFromDisplayConfig` (`0x6fd98`): parses `fd_idma[0]` at offset `+0x8` and `fence_fd` at offset `+0xc` within `struct decon_win_config`.
+  - HWC2 daemon (`composer@2.1-service`, PID 3935) holds `/dev/graphics/fb0` open exclusively to issue this command.
+- **Source / Artifact**: `artifacts/proprietary/libexynosdisplay.so`.
+- **Location**: Function `deliverWinConfigData` @ `0x70194`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-014: Asymmetric Import-Only Architecture of Mali Kbase
+- **Description**: The downstream `mali_kbase` driver does not provide any ioctl to export internal GPU allocations (`KBASE_IOCTL_MEM_ALLOC`) as DMA-BUFs. It acts exclusively as a DMA-BUF importer via ioctl `0xc0188016` (`KBASE_IOCTL_MEM_IMPORT`, `BASE_MEM_IMPORT_TYPE_UMM` = 1).
+- **Supporting Evidence**:
+  - Comprehensive disassembly of all 22 ioctls in `libGLES_mali-64.so` (`reverse-engineering/ioctl-analysis/kbase-ioctls.md`) contains zero export ioctls.
+  - Disassembly of `base_mem_import_padded` @ `0xacc7dc`: issues `0xc0188016`, imports external DMA-BUF `phandle`, and binds it into Mali MMU page tables.
+- **Source / Artifact**: `artifacts/proprietary/libGLES_mali-64.so`.
+- **Location**: Function `base_mem_import_padded` @ `0xacc7dc`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-015: Exynos ION as Universal Graphics Buffer Exporter
+- **Description**: In the Samsung Exynos graphics architecture, cross-device buffer sharing between the GPU (`mali_kbase`) and display scanout (`exynos_decon`) is mediated entirely by Samsung Exynos ION (`/dev/ion`, `libion_exynos.so`). Buffers are allocated via `exynos_ion_alloc()` / `mali_gralloc_ion_allocate()`, exported as DMA-BUF file descriptors, and imported symmetrically into both subsystems.
+- **Supporting Evidence**:
+  - Disassembly of `gralloc.exynos7904.so` (`_Z25mali_gralloc_ion_allocatePKmjPPK13native_handlePb` @ `0xc7a0`): allocates buffers from `/dev/ion` and embeds the resulting DMA-BUF fd in `private_handle_t`.
+  - Disassembly of `libion_exynos.so`: exports `exynos_ion_open`, `exynos_ion_alloc`, and `exynos_ion_close`.
+  - `/dev/ion` device node present on target: Major 10, Minor 127 (`crw-rw-rw-`).
+- **Source / Artifact**: `artifacts/proprietary/gralloc-64.so`, `artifacts/proprietary/libion_exynos.so`.
+- **Location**: `/dev/ion`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+

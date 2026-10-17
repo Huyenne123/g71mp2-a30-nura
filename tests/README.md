@@ -10,6 +10,9 @@ This directory contains standalone, reproducible test harnesses designed to vali
 | :--- | :--- | :--- | :--- | :--- |
 | `kbase_probe.c` | `kbase_probe` | Kernel ABI (`/dev/mali0`) | Validates ioctl handshake (11.27), MTP mapping (`0x3000`), Context ID, and GPU memory allocation/free. | **None** (Freestanding, raw AArch64 syscalls) |
 | `egl_offscreen_test.c` | `egl_offscreen_test` | Userspace EGL/GLES | Validates headless EGL initialization, Pbuffer allocation, shader pipeline execution, hardware job IRQ, and dual-zone pixel readback. | Bionic `libc.so`, `libdl.so` |
+| `fb_probe.c` | `fb_probe` | Display ABI (`/dev/graphics/fb0`) | Inspects DECON FB geometry, pixel bitfields, stride, smem parameters, and probes mmap compatibility. | **None** (Freestanding, raw AArch64 syscalls) |
+| `fb_present_test.c` | `fb_present_test` | Display Presentation | Renders offscreen EGL pattern, adapts RGBA to target BGRA8888 with stride, performs scanout safety assessment, and saves test frame. | Bionic `libc.so`, `libdl.so` |
+
 
 ---
 
@@ -168,10 +171,60 @@ adb shell "su -c /data/local/tmp/egl_offscreen_test"
 
 ---
 
-## 3. Isolation & Non-Destructive Operation Guarantee
+## 3. `fb_probe`: Standalone DECON Framebuffer Hardware Probe
 
-Both test binaries operate under strict isolation constraints:
+### Description
+`fb_probe.c` is a zero-dependency, freestanding static binary that interrogates `/dev/graphics/fb0` using raw Linux AArch64 syscalls. It safely inspects visible and virtual geometry, channel bitfield offsets (detecting native BGRA8888), scanout stride, smem parameters, and tests whether conventional `mmap` is supported.
+
+### Building `fb_probe`
+```bash
+clang --target=aarch64-linux-gnu -fuse-ld=lld -nostdlib -static \
+  tests/fb_probe.c -o tests/fb_probe
+```
+
+### Running `fb_probe` on Device
+```bash
+adb push tests/fb_probe /data/local/tmp/fb_probe
+adb shell chmod +x /data/local/tmp/fb_probe
+adb shell "su -c /data/local/tmp/fb_probe"
+```
+
+---
+
+## 4. `fb_present_test`: Non-Destructive Display Presentation Prototype
+
+### Description
+`fb_present_test.c` bridges GPU rendering and display presentation:
+1. Renders an offscreen amber test pattern via the verified EGL/GLES pipeline on Mali-G71.
+2. Reads back pixels via `glReadPixels`.
+3. Interrogates `/dev/graphics/fb0` to acquire active hardware geometry (1080x2340) and bitfield configuration.
+4. Performs pixel channel reordering from standard GLES RGBA to the display's native BGRA8888 format with stride adaptation.
+5. Performs scanout safety assessment (confirms direct `mmap` rejection, protecting the active display).
+6. Dumps the converted, scanout-ready frame to `/data/local/tmp/fb_frame_test.raw` for validation.
+
+### Building `fb_present_test`
+```bash
+clang --target=aarch64-linux-android -fuse-ld=lld -nostdlib -pie -ffreestanding \
+  -Wl,-dynamic-linker,/system/bin/linker64 \
+  -Lartifacts/extracted/sysroot -lc -ldl \
+  tests/fb_present_test.c -o tests/fb_present_test
+```
+
+### Running `fb_present_test` on Device
+```bash
+adb push tests/fb_present_test /data/local/tmp/fb_present_test
+adb shell chmod +x /data/local/tmp/fb_present_test
+adb shell "su -c /data/local/tmp/fb_present_test"
+```
+
+---
+
+## 5. Isolation & Non-Destructive Operation Guarantee
+
+All test binaries operate under strict isolation constraints:
 - Executables are transferred solely to `/data/local/tmp/`.
 - Neither test writes to or modifies any file in `/system`, `/vendor`, or `/data`.
 - No Android system services or active graphics processes (`surfaceflinger`, `hwcomposer`) are restarted, killed, or disrupted.
+- Framebuffer writes are strictly validated and routed to offline test dumps to protect the live display.
 - GPU context and memory allocations are explicitly reclaimed upon process exit.
+

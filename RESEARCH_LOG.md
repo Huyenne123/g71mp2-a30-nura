@@ -160,3 +160,59 @@ This log chronicles engineering steps, binary analysis sessions, hardware interr
 - Updated `reverse-engineering/evidence-ledger.md` with FIND-009 and FIND-010.
 - Updated `PROJECT_STATUS.md`.
 
+---
+
+## Session: 2026-10-17 — Session 3: Milestone 3B - Display Presentation & Buffer-Sharing Investigation
+
+### Objectives
+1. Inspect downstream kernel source, display drivers, and active kernel configuration.
+2. Interrogate DECON framebuffer device node (`/dev/graphics/fb0`) to determine geometry, formats, stride, and mmap behavior.
+3. Reverse-engineer Samsung HWC2, Acryl, and Gralloc implementations to determine display presentation and buffer sharing.
+4. Investigate GPU buffer export/import support in `mali_kbase` and identify universal allocator (ION).
+5. Build and execute a non-destructive presentation prototype (`tests/fb_present_test.c`).
+6. Define the postmarketOS compatibility boundary for display integration.
+7. Author Milestone 3B documentation and update evidence ledger.
+
+---
+
+### Chronological Log & Observations
+
+#### 1. Framebuffer Driver & Hardware Interrogation (`fb_probe`)
+- Authored and executed `tests/fb_probe.c` on physical device `SM-A305F`:
+  - `FBIOGET_VSCREENINFO`: returned 1080x2340 resolution, 32 bpp, Red offset 16 len 8, Green offset 8 len 8, Blue offset 0 len 8, Alpha offset 24 len 8 -> native `BGRA_8888` (`0xAARRGGBB`) (`FIND-011`).
+  - `FBIOGET_FSCREENINFO`: returned line_length = 4320 bytes (tightly packed: `1080 * 4`), `smem_len = 20,217,600` bytes (2 frames double-buffered), `smem_start = 0x10000000`.
+  - Discovered that conventional `mmap()` on `/dev/graphics/fb0` fails with `-EINVAL` (-22) (`FIND-012`).
+  - Cross-referenced `/proc/iomem`: physical RAM begins at `0x80000000`; `0x10000000` is outside RAM. The driver allocates no static scanout buffer, rendering legacy fbdev writes impossible.
+
+#### 2. Samsung HWC2 & Acryl Reverse Engineering
+- Pulled and analyzed `/vendor/lib64/libexynosdisplay.so` and `/vendor/lib64/libacryl.so`:
+  - Disassembled `ExynosDisplayFbInterface::deliverWinConfigData` (`0x70194` - `0x7040c`).
+  - Mapped the DECON multi-window presentation ioctl: `S3CFB_WIN_CONFIG` (`0x441046d1`, `_IOW('F', 209, struct decon_win_config_data)` size 1040 bytes) (`FIND-013`).
+  - Proved that each hardware overlay window in DECON takes DMA-BUF file descriptors (`fd_idma[0]`) and sync fences (`fence_fd`).
+  - Verified that `android.hardware.graphics.composer@2.1-service` (PID 3935) exclusively controls `/dev/graphics/fb0`.
+  - Disassembled `libacryl.so`: verified Samsung 2D hardware blitter (`AcrylicCompositorM2M1SHOT2_G2D` / `fimg2d`) handling format conversion, scaling, and rotation.
+
+#### 3. GPU Buffer Export vs Import Architecture
+- Audited all 22 `mali_kbase` ioctls: verified that `mali_kbase` has **zero DMA-BUF export ioctls** (`FIND-014`).
+- Disassembled `base_mem_import_padded` (`0xacc7dc`): confirmed that `mali_kbase` imports external DMA-BUFs via `0xc0188016` (`KBASE_IOCTL_MEM_IMPORT`, `BASE_MEM_IMPORT_TYPE_UMM` = 1).
+- Disassembled `gralloc.exynos7904.so` (`0xc7a0`): confirmed that Samsung Exynos ION (`/dev/ion`, `libion_exynos.so`) is the universal memory exporter (`FIND-015`).
+- Traced the complete buffer sharing lifecycle: ION allocation -> DMA-BUF fd -> GPU import & render -> Sync fence -> HWC2 -> DECON `S3CFB_WIN_CONFIG` scanout.
+
+#### 4. Presentation Prototype Execution (`fb_present_test`)
+- Authored and compiled `tests/fb_present_test.c`:
+  - Rendered an offscreen amber test pattern via Mali-G71 GPU.
+  - Read back pixels via `glReadPixels`.
+  - Inspected `/dev/graphics/fb0` hardware geometry (1080x2340) and stride (4320).
+  - Adapted pixel channels from RGBA to native target BGRA8888.
+  - Performed scanout safety assessment, verifying that direct `mmap` is rejected by the kernel, safely protecting the active screen scanout.
+  - Saved the scanout-ready frame to `/data/local/tmp/fb_frame_test.raw`.
+
+#### 5. Documentation & Deliverables
+- Authored `analysis/milestone-3b-display-path.md`.
+- Authored `analysis/milestone-3b-buffer-sharing.md`.
+- Authored `analysis/milestone-3b-postmarketos-compatibility.md`.
+- Updated `reverse-engineering/evidence-ledger.md` with FIND-011 through FIND-015.
+- Updated `artifacts/MANIFEST.md` with hashes for `libexynosdisplay.so` and `libacryl.so`.
+- Updated `tests/README.md`, `PROJECT_STATUS.md`, and `ROADMAP.md`.
+
+

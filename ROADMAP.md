@@ -21,23 +21,52 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 2: Kernel ABI & Memory Management Disassembly (Priority: High)
+## Milestone 2: Kernel ABI & Memory Management Disassembly (Completed)
 - [x] Disassemble and decode downstream `mali_kbase` ioctl table (`0x80`, commands `0x00` through `0x26`).
 - [x] Reverse engineer `base_mem_alloc`, `base_mem_free`, `base_mem_commit`, `base_mem_import_padded`, and `base_mem_alias`.
-- [ ] Document atom structure (`base_jd_atom_v2`) and job submission queue ringbuffer format.
-- [ ] Write a standalone C test utility to perform a clean user-space version check, context initialization, and 4KB GPU memory allocation on `/dev/mali0`.
+- [x] Discover and verify mandatory Memory Tracking Page (`0x3000`) prerequisite for memory allocation (`FIND-007`).
+- [x] Disassemble SVM dual-path deallocation (`munmap` vs `0x40088007`, `FIND-008`).
+- [x] Write and physically execute standalone C probe (`tests/kbase_probe`) validating UK 11.27 handshake, context creation, and memory management.
 
 ---
 
-## Milestone 3: Downstream Acceleration Proof-of-Concept (Option B)
-- [ ] Verify `libion_exynos.so` buffer allocation interface and DMA-BUF export.
-- [ ] Construct an isolated Bionic/musl wrapper or libhybris test binary targeting `/dev/mali0` and `/dev/fb0`.
-- [ ] Execute an offscreen EGL 1.4 render test on target hardware:
-  - Initialize EGL context with `libGLES_mali.so`.
-  - Compile simple vertex and fragment shaders.
-  - Draw a colored triangle to a pbuffer or FBO.
-  - Read back pixels with `glReadPixels()` and verify color values against expected math.
-- [ ] Integrate with Wayland compositors on postmarketOS (e.g. Sway / Sxmo with fbdev/hybris backend).
+## Milestone 3A: Proprietary EGL Offscreen Validation (Completed)
+- [x] Catalog all 621 relocation entries and 391 undefined symbols in `libGLES_mali-64.so`.
+- [x] Document Android Bionic vs Alpine musl libc ABI divergence (`analysis/milestone-3a-elf-dependencies.md`).
+- [x] Reverse-engineer EGL winsys initialization and Pbuffer dispatch path (`_ZL11new_displayPvS_PKi`, `eglCreatePbufferSurface`, `FIND-010`).
+- [x] Build freestanding AArch64 Android test compilation toolchain using host `clang` and target Bionic sysroot.
+- [x] Author and physically execute `tests/egl_offscreen_test` on SM-A305F:
+  - Probed platforms: rejected Surfaceless Mesa, accepted `EGL_PLATFORM_ANDROID_KHR` and Default Display.
+  - Enumerated 25 configs, created 64x64 RGBA8888 Pbuffer, initialized GLES 3.2 context.
+  - Rendered dual-zone scene: Cornflower Blue clear + Red Triangle.
+  - Verified physical GPU execution via Mali Job IRQ counter increment (`+2 interrupts`, `FIND-009`).
+  - Read back pixels via `glReadPixels`, confirming 0 LSB mathematical match.
+
+---
+
+## Milestone 3B: Display Presentation & Buffer-Sharing Investigation (Completed)
+- [x] Interrogate `/dev/graphics/fb0` on physical target hardware via `tests/fb_probe`:
+  - Verified visible and virtual resolution: `1080 x 2340`.
+  - Verified scanout line stride: `4320` bytes/row (tightly packed).
+  - Verified channel bitfields: Red offset 16 len 8, Green offset 8 len 8, Blue offset 0 len 8, Alpha offset 24 len 8 -> native `BGRA_8888` (`FIND-011`).
+- [x] Verified that conventional FBDev `mmap()` is rejected with `-EINVAL` (-22) because no static RAM is allocated at boot (`smem_start = 0x10000000`, `FIND-012`).
+- [x] Disassembled and mapped the DECON multi-window presentation ioctl `S3CFB_WIN_CONFIG` (`0x441046d1`, 1040 bytes) in `libexynosdisplay.so` (`FIND-013`).
+- [x] Verified that `mali_kbase` is an import-only driver (`0xc0188016`) without DMA-BUF export capability (`FIND-014`).
+- [x] Verified that Exynos ION (`/dev/ion`, `libion_exynos.so`) acts as the universal DMA-BUF exporter (`FIND-015`).
+- [x] Built and physically executed `tests/fb_present_test.c`:
+  - Rendered offscreen EGL pattern on Mali-G71.
+  - Adapted RGBA pixel buffer to target BGRA8888 format with stride math.
+  - Performed scanout safety assessment, verifying that active screen scanout cannot be corrupted via legacy fbdev writes.
+  - Saved scanout-ready test frame to `/data/local/tmp/fb_frame_test.raw`.
+- [x] Documented postmarketOS compatibility boundary (`analysis/milestone-3b-postmarketos-compatibility.md`).
+
+---
+
+## Milestone 4: postmarketOS Integration & Display Enablement (Next)
+- [ ] Build minimal `libhybris` wrapper or Bionic micro-container for Alpine Linux.
+- [ ] Implement standalone DECON scanout bridge using ION DMA-BUFs and `S3CFB_WIN_CONFIG`.
+- [ ] Integrate with postmarketOS Wayland compositor (e.g. Weston HWC2 backend or KWin).
+
 
 ---
 

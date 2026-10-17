@@ -7,6 +7,9 @@ artifacts/extracted/sysroot/
 # Compiled test binaries
 tests/kbase_probe
 tests/egl_offscreen_test
+tests/fb_probe
+tests/fb_present_test
+
 
 # Temporary / build files
 *.pyc
