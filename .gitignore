@@ -1,0 +1,9 @@
+# Proprietary vendor binaries - do not commit
+artifacts/proprietary/*.so
+artifacts/extracted/*.dtb
+artifacts/extracted/*.gz
+
+# Temporary / build files
+*.pyc
+__pycache__/
+.cache/
