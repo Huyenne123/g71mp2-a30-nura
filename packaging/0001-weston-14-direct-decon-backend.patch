@@ -308,10 +308,10 @@ index 0000000..a347595
 +#endif /* WESTON_COMPOSITOR_DECON_H */
 diff --git a/libweston/backend-decon/decon.c b/libweston/backend-decon/decon.c
 new file mode 100644
-index 0000000..f883098
+index 0000000..6985a2d
 --- /dev/null
 +++ b/libweston/backend-decon/decon.c
-@@ -0,0 +1,632 @@
+@@ -0,0 +1,673 @@
 +/*
 + * Copyright © 2026 Samsung Exynos 7904 / Mali-G71 Open Graphics Project
 + *
@@ -827,6 +827,14 @@ index 0000000..f883098
 +			decon_head_destroy(base);
 +	}
 +
++#ifdef BUILD_DECON_INPUT
++	if (b->udev) {
++		udev_input_destroy(&b->input);
++		udev_unref(b->udev);
++		b->udev = NULL;
++	}
++#endif
++
 +	if (b->formats) {
 +		free(b->formats);
 +		b->formats = NULL;
@@ -834,6 +842,25 @@ index 0000000..f883098
 +
 +	free(b);
 +}
++
++#ifdef BUILD_DECON_INPUT
++#include <fcntl.h>
++/* Direct embedded device opener when running without a session launcher / seatd */
++WL_EXPORT int
++weston_launcher_open(struct weston_launcher *launcher,
++		     const char *path, int flags)
++{
++	(void)launcher;
++	return open(path, flags);
++}
++
++WL_EXPORT void
++weston_launcher_close(struct weston_launcher *launcher, int fd)
++{
++	(void)launcher;
++	close(fd);
++}
++#endif
 +
 +static struct weston_decon_backend *
 +decon_backend_create(struct weston_compositor *compositor,
@@ -888,6 +915,20 @@ index 0000000..f883098
 +			goto err_free;
 +		}
 +	}
++
++#ifdef BUILD_DECON_INPUT
++	b->udev = udev_new();
++	if (b->udev) {
++		if (udev_input_init(&b->input, compositor, b->udev,
++				    "seat0", NULL) < 0) {
++			weston_log("[-] decon: Failed to initialize udev input on seat0\n");
++		} else {
++			weston_log("[+] decon: Udev input successfully initialized on seat0\n");
++		}
++	} else {
++		weston_log("[-] decon: Failed to create udev context\n");
++	}
++#endif
 +
 +	/* Register primary display head */
 +	if (decon_head_create(b, DECON_DEFAULT_OUTPUT_NAME) < 0) {
@@ -1579,10 +1620,10 @@ index 0000000..00cf73a
 +#endif /* DECON_BACKEND_H */
 diff --git a/libweston/backend-decon/decon_internal.h b/libweston/backend-decon/decon_internal.h
 new file mode 100644
-index 0000000..2ad6acb
+index 0000000..f5d8824
 --- /dev/null
 +++ b/libweston/backend-decon/decon_internal.h
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,117 @@
 +/*
 + * Copyright © 2026 Samsung Exynos 7904 / Mali-G71 Open Graphics Project
 + *
@@ -1632,6 +1673,11 @@ index 0000000..2ad6acb
 +#include <libweston/backend-decon.h>
 +#include "decon_backend.h"
 +
++#ifdef BUILD_DECON_INPUT
++#include <libudev.h>
++#include "libinput-seat.h"
++#endif
++
 +#define DECON_DEFAULT_OUTPUT_NAME "DECON-0"
 +#define DECON_DEFAULT_REFRESH_MHZ 60000
 +
@@ -1656,6 +1702,10 @@ index 0000000..2ad6acb
 +	struct wl_list output_list;
 +	const struct pixel_format_info **formats;
 +	unsigned int formats_count;
++#ifdef BUILD_DECON_INPUT
++	struct udev *udev;
++	struct udev_input input;
++#endif
 +};
 +
 +static inline struct decon_head *
@@ -1693,10 +1743,10 @@ index 0000000..2ad6acb
 +#endif /* DECON_INTERNAL_H */
 diff --git a/libweston/backend-decon/meson.build b/libweston/backend-decon/meson.build
 new file mode 100644
-index 0000000..67d1fc4
+index 0000000..b921fa3
 --- /dev/null
 +++ b/libweston/backend-decon/meson.build
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,30 @@
 +if not get_option('backend-decon')
 +	subdir_done()
 +endif
@@ -1713,10 +1763,13 @@ index 0000000..67d1fc4
 +	'decon-backend',
 +	srcs_decon,
 +	include_directories: [ common_inc, include_directories('.') ],
++	c_args: [ '-DBUILD_DECON_INPUT=1' ],
 +	dependencies: [
 +		dep_libweston_private,
 +		dep_libdrm_headers,
 +		dep_pixman,
++		dep_libinput_backend,
++		dependency('libudev', version: '>= 136'),
 +	],
 +	name_prefix: '',
 +	install: true,

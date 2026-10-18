@@ -513,6 +513,14 @@ decon_backend_destroy(struct weston_backend *backend)
 			decon_head_destroy(base);
 	}
 
+#ifdef BUILD_DECON_INPUT
+	if (b->udev) {
+		udev_input_destroy(&b->input);
+		udev_unref(b->udev);
+		b->udev = NULL;
+	}
+#endif
+
 	if (b->formats) {
 		free(b->formats);
 		b->formats = NULL;
@@ -520,6 +528,25 @@ decon_backend_destroy(struct weston_backend *backend)
 
 	free(b);
 }
+
+#ifdef BUILD_DECON_INPUT
+#include <fcntl.h>
+/* Direct embedded device opener when running without a session launcher / seatd */
+WL_EXPORT int
+weston_launcher_open(struct weston_launcher *launcher,
+		     const char *path, int flags)
+{
+	(void)launcher;
+	return open(path, flags);
+}
+
+WL_EXPORT void
+weston_launcher_close(struct weston_launcher *launcher, int fd)
+{
+	(void)launcher;
+	close(fd);
+}
+#endif
 
 static struct weston_decon_backend *
 decon_backend_create(struct weston_compositor *compositor,
@@ -574,6 +601,20 @@ decon_backend_create(struct weston_compositor *compositor,
 			goto err_free;
 		}
 	}
+
+#ifdef BUILD_DECON_INPUT
+	b->udev = udev_new();
+	if (b->udev) {
+		if (udev_input_init(&b->input, compositor, b->udev,
+				    "seat0", NULL) < 0) {
+			weston_log("[-] decon: Failed to initialize udev input on seat0\n");
+		} else {
+			weston_log("[+] decon: Udev input successfully initialized on seat0\n");
+		}
+	} else {
+		weston_log("[-] decon: Failed to create udev context\n");
+	}
+#endif
 
 	/* Register primary display head */
 	if (decon_head_create(b, DECON_DEFAULT_OUTPUT_NAME) < 0) {

@@ -215,12 +215,31 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 7: postmarketOS Weston Integration & Libhybris / Panfrost Translation (Next)
-- [ ] Implement `libhybris` dynamic linker integration to bridge proprietary `libGLES_mali-64.so` with Linux musl/glibc.
-- [ ] Deploy `weston-backend-decon` package to a physical postmarketOS rootfs and test native graphical session under musl.
-- [ ] Boot into full postmarketOS graphical desktop environment (e.g. Phosh, Sxmo, or Weston) on Galaxy A30 with hardware acceleration.
-- [ ] (Path B): Implement `pan_kmod_kbase.c` userspace kernel translation prototype inside Mesa Panfrost to translate DRM Panfrost ioctls to Kbase UK 11.27 atoms on downstream Linux 4.4.
+## Milestone 7A: Standalone Linux Userspace Deployment, Input Integration, and Recovery Validation (Completed)
+- [x] Capture reproducible baseline: kernel `4.4.302-p6-neyuKernel_legacy`, Alpine v3.21.8 ARM64 (`musl 1.2.5`), Weston 14.0.2, input device inventory (16 devices), mount layout, and recovery path.
+- [x] Rootfs Deployment Strategy: Audited and compared Option A (Android chroot), Option B (Standalone userspace on 4.4 kernel), and Option C (Mainline postmarketOS). Selected Option A as safe reproducible development rootfs without flashing partition hazards (`analysis/milestone-7a-deployment.md`).
+- [x] Dynamic Touchscreen Discovery (`FIND-039`): Identified `sec_touchscreen` via `INPUT_PROP_DIRECT` (`0x2`) and multitouch absolute axes `ABS_MT_POSITION_X`/`Y`/`SLOT` (`0x4263800000000000`), distinguishing it from `sec_touchpad` (`INPUT_PROP_POINTER`) and sensor hubs.
+- [x] Embedded Seat Integration: Extended `backend-decon` with `udev_input_init` on `seat0` and direct device openers (`weston_launcher_open`/`close`) for standalone/chroot environments without `systemd-logind` or `seatd`.
+- [x] Live Client Touch Interaction: Fullscreen `weston-simple-touch` verified live touch DOWN, MOTION, UP, and FRAME event delivery on physical EA8076 Super AMOLED screen at coordinates `(496.0, 68.6)` through `(564.5, 1290.5)`.
+- [x] Hardware Key Policy: Audited `gpio_keys` (`/dev/input/event14`) and documented routing to platform services.
+- [x] Compositor Lifecycle Persistence: Verified clean device detachment and re-initialization across compositor restarts.
+- [x] Udev Autosuspend Disconnection Resolution: Disabled `/usr/lib/udev/rules.d/60-autosuspend.rules` and restricted udev triggers to input subsystem, preventing USB reset.
+- [x] Stability Soak and Recovery Validation: Verified clean SIGTERM shutdown, zero memory leaks (flat at 17.3 MB), zero FD leaks (flat at 24–35), and guaranteed HWC2/SurfaceFlinger restoration.
+- [x] GPU Acceleration Feasibility Audit (`FIND-040`): Audited `pan_kmod_kbase` vs `libhybris`. Confirmed `pan_kmod_kbase` is UNVERIFIED / CONCEPTUAL ONLY for Bifrost v6 (G71). Marked `libhybris` as feasible path for vendor DDK (`analysis/milestone-7-gpu-path-feasibility.md`).
+- [x] Deliver Milestone 7A technical reports:
+  - `analysis/milestone-7a-deployment.md`
+  - `analysis/milestone-7a-input.md`
+  - `analysis/milestone-7-gpu-path-feasibility.md`
+- [x] Record FIND-039 and FIND-040 in `reverse-engineering/evidence-ledger.md`.
 
+---
+
+## Milestone 7B: Libhybris Bridge Implementation for Vendor Mali DDK (Next)
+- [ ] Implement and compile `libhybris` dynamic linker (`hybris-linker`) on Alpine ARM64 musl.
+- [ ] Bridge Bionic C++ runtime (`libc++.so`) and `LIBC_N/P/R` versioning for `libGLES_mali-64.so`.
+- [ ] Validate headless offscreen EGL/GLES context creation under pure musl userspace.
+- [ ] Connect `libhybris` EGL platform to Weston Direct-DECON backend for hardware-accelerated GL composition.
+- [ ] Deploy standalone postmarketOS rootfs image to sdcard/userdata for boot testing without Android host services.
 
 ---
 
@@ -229,3 +248,4 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 1. **Compilation != Functional**: A driver or test utility that compiles is not considered working until GPU registers change state, interrupts fire, and rendered output matches ground truth.
 2. **No Blind Submissions**: Do not submit experimental job descriptors to a live GPU without verifying ringbuffer bounds and atom layout.
 3. **Reproducibility**: Every finding must be reproducible with documented shell commands or standalone scripts.
+

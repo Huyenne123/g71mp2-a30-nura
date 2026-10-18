@@ -1,7 +1,7 @@
 # Project Status: Mali-G71 Open GPU Driver for postmarketOS
 
 - **Current Date**: 2026-10-18
-- **Active Phase**: Phase 6E — **Milestones 3A through 6E VERIFIED; Practical Wayland Desktop Validation, Multi-Surface Concurrency, Continuous Presentation Soak (1,920+ Frames / 59.91 Hz Scanout IRQs), Release Fence Leak Resolution (FIND-037), and High-Resolution Performance Telemetry Established**. Moving to Milestone 7 (postmarketOS rootfs deployment, libhybris bridge, Mesa `pan_kmod_kbase`).
+- **Active Phase**: Phase 7A — **Milestones 3A through 7A VERIFIED; Standalone Linux Userspace Deployment Strategy, Multitouch Capability Discovery & Calibration, Embedded Seat Integration, Live Touch Interaction with Wayland Client (FIND-039), and GPU Acceleration Feasibility Audit (FIND-040) Established**. Moving to Milestone 7B (libhybris bridge for proprietary vendor Mali DDK).
 - **Device Target**: Samsung Galaxy A30 (`SM-A305F` / `universal7904`)
 - **GPU Target**: ARM Mali-G71 MP2 (2 cores, r0p0, GPU ID `0x60A0`, Bifrost v6)
 - **Kernel Target**: Linux 4.4.302-p6 (`neyuKernel_legacy`) downstream with `mali_kbase r26p0`
@@ -10,7 +10,16 @@
 
 ## 1. Executive Summary
 
-Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, **Mesa Panfrost Bifrost v6 gap analysis**, **direct DECON Window 3 presentation engine**, **Milestone 6A runtime environment audit**, **Milestone 6B Weston Direct-DECON Backend**, **Milestone 6C Integration Audit & Validation**, **Milestone 6D In-Tree Weston Integration & Real Wayland Presentation**, and **Milestone 6E Practical Wayland Desktop Validation & Input Integration** are fully established and verified on the Samsung Galaxy A30 (`SM-A305F`).
+Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, **Mesa Panfrost Bifrost v6 gap analysis**, **direct DECON Window 3 presentation engine**, **Milestone 6A runtime environment audit**, **Milestone 6B Weston Direct-DECON Backend**, **Milestone 6C Integration Audit & Validation**, **Milestone 6D In-Tree Weston Integration & Real Wayland Presentation**, **Milestone 6E Practical Wayland Desktop Validation & Input Integration**, and **Milestone 7A Standalone Linux Userspace Deployment, Input Integration, and Recovery Validation** are fully established and verified on the Samsung Galaxy A30 (`SM-A305F`).
+
+**Milestone 7A (Standalone Linux Userspace Deployment, Input Integration, and Recovery Validation) — 100% Verified on Target Hardware**:
+1. **Rootfs Deployment Strategy**: Conducted exhaustive risk and architectural trade-off analysis across Option A (Android chroot development rootfs), Option B (Standalone userspace on downstream 4.4 kernel), and Option C (Mainline postmarketOS on 6.x kernel). Adopted Option A as the zero-risk, recoverable development baseline preserving verified ADB and display interfaces (`analysis/milestone-7a-deployment.md`).
+2. **Dynamic Touchscreen Multitouch Integration (`FIND-039`)**: Integrated capacitive touchscreen (`sec_touchscreen`, Melfas MMS400 on I2C `11-0048`, `/dev/input/event1`) via capability filtering for `INPUT_PROP_DIRECT` (`0x2`) and multitouch axes `ABS_MT_POSITION_X`/`Y`/`SLOT` (`abs=0x4263800000000000`). Extended `backend-decon` with `udev_input_init(&b->input, compositor, b->udev, "seat0", NULL)` and fallback direct device openers (`weston_launcher_open`/`close`).
+3. **Live Client Touch Interaction**: Validated with fullscreen Wayland client `weston-simple-touch` on the physical 1080x2340 EA8076 Super AMOLED screen. Verified end-to-end event dispatching: touch DOWN, MOTION, UP, and FRAME events processed at exact screen coordinates `(496.0, 68.6)` through `(564.5, 1290.5)`. Confirmed clean input seat re-initialization across compositor restarts.
+4. **Hardware Key Policy**: Audited `gpio_keys` (`/dev/input/event14`: `KEY_VOLUMEDOWN` 114, `KEY_VOLUMEUP` 115, `KEY_POWER` 116) and documented routing to platform services (`logind`/PipeWire) rather than client surfaces.
+5. **Udev Autosuspend Disconnection Resolution**: Diagnosed and disabled `/usr/lib/udev/rules.d/60-autosuspend.rules` (`eudev`) which reset the Exynos USB gadget controller (`13600000.usb`) and dropped ADB during udev triggers; restricted triggers to `--subsystem-match=input`.
+6. **Stability Soak & Safe Recovery**: Completed stability soak and recovery verification with zero memory leaks (flat VmRSS at 17.3 MB), zero FD leaks (flat at 24–35), clean SIGTERM shutdown, and verified restoration of Android SurfaceFlinger and HWC2 (`exit status 0`).
+7. **GPU Acceleration Feasibility Audit (`FIND-040`)**: Conducted rigorous architectural audit comparing `pan_kmod_kbase` vs `libhybris`. Formally categorized `pan_kmod_kbase` as **UNVERIFIED / CONCEPTUAL ONLY** for Bifrost v6 (G71) on UK 11.27. Categorized vendor DDK via `libhybris` with `hybris-linker` as the only viable path to bridge Bionic `LIBC_N/P/R` versioning and `libc++.so` to Linux musl userspace (`analysis/milestone-7-gpu-path-feasibility.md`).
 
 **Milestone 6E (Practical Wayland Desktop Validation & Input Integration) — 100% Verified on Target Hardware**:
 1. **Critical DECON Release Fence Leak Fix (`FIND-037`)**: Discovered that Samsung DECON creates and returns an in-flight Release Fence FD (`rel_fence`) at byte offset `0x18` of `struct decon_win_config` for Window 3 on every `S3CFB_WIN_CONFIG_IOCTL`. Closing `rel_fence >= 0` immediately after ioctl eliminated a severe 60 FD/sec kernel leak, keeping open descriptors rock-solid at 24–26 across thousands of frames.
@@ -141,6 +150,7 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | **Weston Integration Audit & Hardening (6C)**| **VERIFIED (10/10 Tests PASS)** | `analysis/milestone-6c-integration-audit.md`, `analysis/milestone-6c-test-matrix.md` (FIND-034, FIND-035). |
 | **In-Tree Weston & Wayland Presentation (6D)**| **VERIFIED (480+ Frames)** | `analysis/milestone-6d-weston-runtime.md`, `analysis/milestone-6d-build-matrix.md` (FIND-036). |
 | **Wayland Desktop Validation & Input (6E)**| **VERIFIED (1,920+ Frames)** | `analysis/milestone-6e-input-validation.md`, `analysis/milestone-6e-desktop-tests.md`, `analysis/milestone-6e-performance-baseline.md` (FIND-037, FIND-038). |
+| **Standalone Userspace & Input Integration (7A)**| **VERIFIED (Live Touch)** | `analysis/milestone-7a-deployment.md`, `analysis/milestone-7a-input.md`, `analysis/milestone-7-gpu-path-feasibility.md` (FIND-039, FIND-040). |
 
 ---
 
@@ -148,9 +158,9 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 
 1. **Vendor DDK Musl Incompatibility Barrier**:
    - `libGLES_mali-64.so` cannot be loaded directly by pure musl libc due to `DT_NEEDED [libc++.so]` (Bionic C++ ABI) and symbol versioning (`LIBC_N/P/R`).
-   - Resolution: Must deploy `libhybris` (with `hybris-linker`) or an isolated Android container environment to bridge the proprietary DDK inside a musl/glibc Linux desktop.
+   - Resolution: Must deploy `libhybris` (with `hybris-linker`) to bridge the proprietary DDK inside a musl Linux desktop. `pan_kmod_kbase` was audited in Milestone 7A and determined to be **UNVERIFIED / CONCEPTUAL ONLY** for Bifrost v6 (Mali-G71).
 2. **Wayland Compositor Integration Gap**:
-   - **RESOLVED**: In-tree Weston 14 Direct-DECON backend (`decon-backend.so`) is fully verified on real hardware under pure Alpine musl ARM64. Displays live Wayland clients at 60 Hz VSYNC on Samsung EA8076 Super AMOLED with zero Android framework dependencies. Validated damage tracking, concurrent multi-surface composition, and sustained soak stability (1,920+ consecutive frames, zero memory/FD leaks, 59.91 Hz hardware cadence).
+   - **RESOLVED**: In-tree Weston 14 Direct-DECON backend (`decon-backend.so`) is fully verified on real hardware under pure Alpine musl ARM64. Displays live Wayland clients at 60 Hz VSYNC on Samsung EA8076 Super AMOLED with zero Android framework dependencies. Validated damage tracking, concurrent multi-surface composition, sustained soak stability (1,920+ consecutive frames, zero memory/FD leaks, 59.91 Hz hardware cadence), and live multitouch input integration (`FIND-039`).
 3. **Absence of Mainline DRM in Downstream Kernel**:
    - Downstream kernel 4.4 disables DRM (`# CONFIG_DRM is not set`) in favor of legacy DECON FB.
    - Resolution: Weston DECON backend (`backend-decon.so`) completely bypasses DRM KMS by driving Window 3 IDMA 0 directly via `S3CFB_WIN_CONFIG`.
@@ -159,9 +169,11 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 
 ## 4. Next Concrete Tasks
 
-1. **TASK-001 (Milestone 7)**: Implement `libhybris` dynamic loader integration to bridge `libGLES_mali-64.so` with Linux musl/glibc.
-2. **TASK-002 (Milestone 7)**: Deploy `weston-backend-decon` package to physical postmarketOS rootfs and launch native desktop session.
-3. **TASK-003 (Milestone 7 / Research)**: Implement `pan_kmod_kbase` shim prototype translating Mesa Panfrost DRM gem/job submissions to Kbase UK 11.27 atoms for pure open-source Gallium rendering.
+1. **TASK-001 (Milestone 7B)**: Implement and compile `libhybris` dynamic loader (`hybris-linker`) under Alpine Linux ARM64 musl to bridge `libGLES_mali-64.so`.
+2. **TASK-002 (Milestone 7B)**: Resolve Bionic C++ runtime (`libc++.so`) and `LIBC_N/P/R` versioning dependencies to initialize offscreen EGL 1.4 context on Mali-G71 MP2 from musl userspace.
+3. **TASK-003 (Milestone 7B)**: Integrate `libhybris` EGL platform into Weston Direct-DECON backend for hardware-accelerated GLES composition.
+4. **TASK-004 (Milestone 7B)**: Deploy standalone postmarketOS rootfs image to sdcard/userdata for boot testing without Android host services.
+
 
 
 

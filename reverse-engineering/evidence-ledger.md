@@ -556,9 +556,44 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
 
+### FIND-039: Touchscreen Capability Discovery, Embedded Seat Integration, and Live Client Touch Interaction
+- **Description**: Multitouch input integration on the Samsung Galaxy A30 was implemented and verified end-to-end under Weston 14.0.2:
+  1. **Dynamic Capability Discovery**: The capacitive touchscreen (`sec_touchscreen`, Melfas MMS400 series on I2C `11-0048`, `/dev/input/event1`) was uniquely identified by input capabilities rather than fragile static paths. Filtering for `INPUT_PROP_DIRECT` (`prop=2`) and multitouch absolute axes `ABS_MT_POSITION_X` / `ABS_MT_POSITION_Y` / `ABS_MT_SLOT` (`abs=0x4263800000000000`) uniquely isolates the primary display digitizer from pointer touchpads (`sec_touchpad`, `INPUT_PROP_POINTER`), proximity sensors, and hardware switches.
+  2. **Coordinate Calibration**: The physical digitizer reports raw coordinates in the range `[0..4095]` on both X and Y axes. Libinput default calibration transforms these linearly to the 1080x2340 EA8076 Super AMOLED surface with identity orientation in portrait mode.
+  3. **Embedded Seat Integration**: `backend-decon` was extended with `udev_input_init(&b->input, compositor, b->udev, "seat0", NULL)` and fallback direct device openers (`weston_launcher_open`/`close`), allowing libinput to manage input seats in standalone/chroot environments without `systemd-logind` or `seatd`.
+  4. **Live Client Touch Interaction**: Physical hardware testing with a fullscreen Wayland client (`weston-simple-touch`) verified full event delivery: touch DOWN, MOTION, UP, and FRAME events were received and processed at real screen coordinates `(496.0, 68.6)` through `(564.5, 1290.5)`.
+  5. **Hardware Key Policy**: `gpio_keys` (`/dev/input/event14`: `KEY_VOLUMEDOWN` 114, `KEY_VOLUMEUP` 115, `KEY_POWER` 116) were audited and designated for platform power/audio management services rather than client Wayland surfaces.
+  6. **Compositor Lifecycle Persistence**: Multiple compositor restart cycles confirmed clean device detachment and re-initialization on `seat0` with zero resource leaks.
+- **Supporting Evidence**:
+  - Implementation in `src/weston/backend-decon/decon.c` and `decon_internal.h`.
+  - Target logs in `/data/local/tmp/m7a_input/` and live touch trace.
+  - Report: `analysis/milestone-7a-input.md`.
+- **Source / Artifact**: `src/weston/backend-decon/decon.c` / `analysis/milestone-7a-input.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/dev/input/event1`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
 
+---
 
-
-
-
+### FIND-040: GPU Acceleration Feasibility: Vendor DDK via libhybris vs pan_kmod_kbase
+- **Description**: An exhaustive architectural feasibility audit was conducted comparing two candidate paths for hardware-accelerated 3D rendering on the Samsung Galaxy A30 (Exynos 7904, Mali-G71 MP2, Linux 4.4.302):
+  1. **`pan_kmod_kbase` (Mainline/Open-Source Mesa Panfrost)**:
+     - Formally categorized as **UNVERIFIED / CONCEPTUAL ONLY**.
+     - Community implementations (e.g. `zenithblue-oss/panvk-kbase-android`) focus exclusively on Vulkan (PanVK) for Valhall CSF GPUs (v9+, Mali-G710/G610) targeting Kbase UK 10.x.
+     - No open-source shim or kernel-driver bridge exists for 1st-generation Bifrost v6.0 (Mali-G71, GPU ID `0x60A0`) or Gallium Panfrost on downstream Kbase UK 11.27 (`0x001b000b`).
+     - Upstream Mesa Panfrost lacks production compiler and backend support for Bifrost v6.0 and requires DRM/KMS which is absent from downstream kernel 4.4.302.
+  2. **Vendor Mali DDK via `libhybris`**:
+     - Categorized as **FEASIBLE / HIGHEST PROBABILITY**.
+     - The proprietary vendor driver `libGLES_mali-64.so` (`vendor/arm/MaliG71_r26p0_LS_R/`) communicates natively with downstream `mali_kbase` (UK 11.27) via `/dev/mali0`.
+     - The vendor library has 8 `DT_NEEDED` dependencies, Bionic `LIBC_N/P/R` versioning barriers, and Bionic C++ runtime dependencies (`libc++.so`).
+     - A custom minimal shim is insufficient due to Bionic thread-local storage (TLS) layout and linker-enforced symbol versioning.
+     - `libhybris` with `hybris-linker` provides the necessary Bionic-to-glibc/musl emulation layer, enabling Linux Wayland clients and compositors to utilize vendor EGL/GLES acceleration.
+- **Supporting Evidence**:
+  - Detailed architectural matrix in `analysis/milestone-7-gpu-path-feasibility.md`.
+  - Disassembly of `libGLES_mali-64.so` (`0xacbd84`, `0xacdab4`).
+  - Sysfs inspection of `/sys/devices/platform/11500000.mali/gpuinfo`.
+- **Source / Artifact**: `analysis/milestone-7-gpu-path-feasibility.md` / `artifacts/proprietary/libGLES_mali-64.so`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.

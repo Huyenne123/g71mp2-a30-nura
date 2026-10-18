@@ -47,6 +47,11 @@
 #include <libweston/backend-decon.h>
 #include "decon_backend.h"
 
+#ifdef BUILD_DECON_INPUT
+#include <libudev.h>
+#include "libinput-seat.h"
+#endif
+
 #define DECON_DEFAULT_OUTPUT_NAME "DECON-0"
 #define DECON_DEFAULT_REFRESH_MHZ 60000
 
@@ -71,6 +76,10 @@ struct weston_decon_backend {
 	struct wl_list output_list;
 	const struct pixel_format_info **formats;
 	unsigned int formats_count;
+#ifdef BUILD_DECON_INPUT
+	struct udev *udev;
+	struct udev_input input;
+#endif
 };
 
 static inline struct decon_head *
