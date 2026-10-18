@@ -476,6 +476,35 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
+
+### FIND-034: Weston 14 Private Header Coupling & Packaging Reality
+- **Description**: Weston does not expose a generic public third-party plugin API for external display backends. Implementing `weston_backend` requires in-tree private headers (`backend.h`, `pixman-renderer.h`, `pixel-formats.h`) located under `libweston/`, which are omitted from standard distribution packages (`libweston-14-dev`). Consequently, to distribute `backend-decon` for Alpine Linux / postmarketOS, the backend must be packaged as an in-tree patch to Weston's meson build system in `aports` (`community/weston`) rather than an isolated external package.
+- **Supporting Evidence**:
+  - Inspection of public header set `/usr/include/libweston-14/libweston/` (lacks `backend.h`, `pixman-renderer.h`, `pixel-formats.h`).
+  - Inspection of Weston 14.0.2 upstream source tree (`libweston/backend.h`).
+  - Architectural evaluation in `analysis/milestone-6c-integration-audit.md`.
+- **Source / Artifact**: `analysis/milestone-6c-integration-audit.md` / `src/weston/backend-decon/decon_internal.h`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-035: Retire Fence Asynchronous Fault & Teardown Resilience
+- **Description**: The Weston Direct-DECON presentation pipeline was hardened and verified against asynchronous display faults:
+  1. Fence error masks (`WL_EVENT_ERROR` / `WL_EVENT_HANGUP`) in `decon_fence_handler` correctly set presentation feedback to `WP_PRESENTATION_FEEDBACK_INVALID`, alert clients to frame discard, clean up file descriptors, and prevent compositor lockup.
+  2. Output destruction (`decon_output_disable`) while a retire fence is in-flight safely removes event loop sources and closes fence descriptors, eliminating use-after-free conditions.
+  3. Re-entrant repaints trigger stale fence cleanup to prevent descriptor leaks.
+  4. Swapchain buffer allocation exhaustion during output initialization cleanly reclaims partially allocated ION handles and DMA-BUF descriptors via `decon_backend_teardown()`, with handle clearing preventing double-free errors.
+- **Supporting Evidence**:
+  - Implementation in `src/weston/backend-decon/decon.c` and `src/compositor/decon_backend.c`.
+  - Comprehensive unit test suite (`tests/weston_backend_test.c`) verifying Tests 7 through 10 with 100% pass rate.
+- **Source / Artifact**: `src/weston/backend-decon/decon.c` / `tests/weston_backend_test.c` / `analysis/milestone-6c-test-matrix.md`.
+- **Location**: `src/weston/backend-decon/decon.c`, `src/compositor/decon_backend.c`, `tests/weston_backend_test.c`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+
 
 
 

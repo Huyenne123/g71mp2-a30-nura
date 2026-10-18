@@ -51,12 +51,15 @@ decon_fence_handler(int fd, uint32_t mask, void *data)
 {
 	struct decon_output *output = data;
 	struct timespec ts;
+	uint32_t flags = WP_PRESENTATION_FEEDBACK_KIND_VSYNC;
 
 	(void)fd;
-	(void)mask;
 
-	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
-	weston_output_finish_frame(&output->base, &ts, WP_PRESENTATION_FEEDBACK_KIND_VSYNC);
+	if (mask & (WL_EVENT_ERROR | WL_EVENT_HANGUP)) {
+		weston_log("[-] decon: Retire fence error or hangup on fd %d (mask 0x%x)\n",
+			   output->current_retire_fence, mask);
+		flags = WP_PRESENTATION_FEEDBACK_INVALID;
+	}
 
 	if (output->fence_source) {
 		wl_event_source_remove(output->fence_source);
@@ -67,6 +70,9 @@ decon_fence_handler(int fd, uint32_t mask, void *data)
 		close(output->current_retire_fence);
 		output->current_retire_fence = -1;
 	}
+
+	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
+	weston_output_finish_frame(&output->base, &ts, flags);
 
 	/* Toggle ping-pong active buffer index */
 	output->active_idx ^= 1;
@@ -121,6 +127,17 @@ decon_output_repaint(struct weston_output *base)
 	ec->renderer->repaint_output(base, &damage,
 				     output->renderbuffers[output->active_idx]);
 	pixman_region32_fini(&damage);
+
+	/* Guard against any stale in-flight retire fence before new submission */
+	if (output->fence_source) {
+		weston_log("[-] decon: Stale retire fence detected during repaint, cleaning up\n");
+		wl_event_source_remove(output->fence_source);
+		output->fence_source = NULL;
+	}
+	if (output->current_retire_fence >= 0) {
+		close(output->current_retire_fence);
+		output->current_retire_fence = -1;
+	}
 
 	/* Present buffer to Samsung DECON Window 3 */
 	if (output->engine && !output->backend->config.mock_mode) {
@@ -463,6 +480,11 @@ decon_backend_destroy(struct weston_backend *backend)
 			decon_head_destroy(base);
 	}
 
+	if (b->formats) {
+		free(b->formats);
+		b->formats = NULL;
+	}
+
 	free(b);
 }
 
@@ -529,6 +551,8 @@ decon_backend_create(struct weston_compositor *compositor,
 	return b;
 
 err_free:
+	if (b->formats)
+		free(b->formats);
 	wl_list_remove(&b->base.link);
 	free(b);
 	return NULL;

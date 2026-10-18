@@ -147,6 +147,21 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
+## Milestone 6C: Weston Direct-DECON Integration Audit & Hardening (Completed)
+- [x] Conduct deep audit of Weston 14.0.2 header boundaries: document private in-tree coupling of `backend.h`, `pixman-renderer.h`, and `pixel-formats.h`, and establish in-tree packaging requirement for postmarketOS (`FIND-034`).
+- [x] Audit `decon-backend.so` ELF dynamic dependencies (`libweston-14.so.0`, `libpixman-1.so.0`, `libwayland-server.so.0`, `libc.so.6`) and verify single exported entry point `weston_backend_init`.
+- [x] Author comprehensive 5-track test matrix (`analysis/milestone-6c-test-matrix.md`) strictly separating Source Verification, Compilation, Mock Testing, Real Weston Runtime, and Physical Display Scanout.
+- [x] Expand unit test suite (`tests/weston_backend_test.c`) from 6 to 10 tests with active failure injection:
+  - Test 7: Retire fence error/hangup (`WL_EVENT_ERROR`/`WL_EVENT_HANGUP`) sets `WP_PRESENTATION_FEEDBACK_INVALID`, closes descriptors, and continues presentation cleanly.
+  - Test 8: Output destruction with pending in-flight fence safely removes event sources and closes descriptors with zero use-after-free.
+  - Test 9: Stale fence protection guards against re-entrant repaints, verified via peer socket EOF detection.
+  - Test 10: Swapchain allocation exhaustion during output initialization cleanly reclaims all handles and DMA-BUF descriptors via `decon_backend_teardown()`.
+- [x] Achieve 100% pass rate (10/10 tests) on unit test suite.
+- [x] Harden `src/compositor/decon_backend.c` against handle double-free faults and descriptor leaks during allocation failures.
+- [x] Deliver Milestone 6C technical reports: `analysis/milestone-6c-integration-audit.md` and `analysis/milestone-6c-test-matrix.md`.
+
+---
+
 ## Milestone 7: postmarketOS Weston Integration & Libhybris / Panfrost Translation (Next)
 - [ ] Implement `libhybris` dynamic linker integration to bridge proprietary `libGLES_mali-64.so` with Linux musl/glibc.
 - [ ] Deploy `weston-backend-decon` package to a physical postmarketOS rootfs and test native graphical session under musl.

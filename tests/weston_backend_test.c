@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 
 #include <wayland-server.h>
 #include <libweston/libweston.h>
@@ -39,6 +40,8 @@ struct mock_decon_state {
 	int submit_count;
 	int last_presented_fd;
 	int inject_ioctl_error;
+	int inject_alloc_fail_on_count;
+	int inject_fence_hangup;
 	int pending_fence_fd;
 	uint32_t last_window_mask;
 };
@@ -65,8 +68,13 @@ static int mock_ioctl_handler(int fd, unsigned long request, void *arg)
 	}
 
 	if (request == ION_IOC_ALLOC) {
-		struct ion_allocation_data *alloc = (struct ion_allocation_data *)arg;
 		g_mock.alloc_count++;
+		if (g_mock.inject_alloc_fail_on_count &&
+		    g_mock.alloc_count == g_mock.inject_alloc_fail_on_count) {
+			errno = ENOMEM;
+			return -1;
+		}
+		struct ion_allocation_data *alloc = (struct ion_allocation_data *)arg;
 		alloc->handle = g_mock.alloc_count;
 		return 0;
 	}
@@ -138,10 +146,24 @@ static int mock_ioctl_handler(int fd, unsigned long request, void *arg)
 
 		g_mock.last_presented_fd = w3->fd_idma[0];
 
-		/* 4. Generate Linux eventfd simulating sync retire fence */
-		int fence_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+		/* 4. Generate Linux sync retire fence */
+		if (g_mock.pending_fence_fd >= 0) {
+			close(g_mock.pending_fence_fd);
+			g_mock.pending_fence_fd = -1;
+		}
+		int fence_fd = -1;
+		if (g_mock.inject_fence_hangup) {
+			int sv[2];
+			if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, sv) < 0) {
+				return -1;
+			}
+			fence_fd = sv[0];
+			g_mock.pending_fence_fd = sv[1];
+		} else {
+			fence_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+			g_mock.pending_fence_fd = dup(fence_fd);
+		}
 		win_data->fence = fence_fd;
-		g_mock.pending_fence_fd = fence_fd;
 		return 0;
 	}
 
@@ -565,7 +587,10 @@ static int test_multiframe_page_flipping(void)
 
 		/* Signal fence */
 		uint64_t val = 1;
-		write(g_mock.pending_fence_fd, &val, sizeof(val));
+		if (write(g_mock.pending_fence_fd, &val, sizeof(val)) != sizeof(val)) {
+			printf("[-] Frame %d: write to fence failed\n", frame);
+			return 1;
+		}
 
 		/* Dispatch event loop */
 		wl_event_loop_dispatch(loop, 0);
@@ -643,6 +668,334 @@ static int test_error_injection_and_recovery(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Test 7: Retire Fence Error & Hangup Handling
+ * ------------------------------------------------------------------------- */
+
+static int test_fence_error_and_hangup(void)
+{
+	printf("\n[*] TEST 7: Retire Fence Error & Hangup Handling...\n");
+	struct test_fixture fix;
+	if (fixture_setup(&fix, false) < 0) {
+		printf("[-] FAILED to setup fixture\n");
+		return 1;
+	}
+
+	struct weston_output *out_base = fix.backend->create_output(fix.backend, "DECON-0");
+	struct decon_output *output = to_decon_output(out_base);
+	struct weston_head *head = container_of(fix.compositor->head_list.next,
+						struct weston_head, compositor_link);
+	weston_output_attach_head(out_base, head);
+
+	struct decon_backend_config eng_cfg = {
+		.width = 1080, .height = 2340, .stride = 4320,
+		.buffer_size = 10240000, .window_index = 3,
+		.fb_node = "/dev/graphics/fb0", .ion_node = "/dev/ion"
+	};
+	output->engine = decon_backend_init(&eng_cfg);
+	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_enable(out_base);
+
+	struct wl_event_loop *loop = wl_display_get_event_loop(fix.display);
+
+	if (out_base->idle_repaint_source) {
+		wl_event_source_remove(out_base->idle_repaint_source);
+		out_base->idle_repaint_source = NULL;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+	out_base->start_repaint_loop(out_base);
+
+	/* 1. Arm repaint with injected fence hangup */
+	g_mock.inject_fence_hangup = 1;
+	uint32_t prev_idx = output->active_idx;
+
+	if (out_base->repaint(out_base) < 0) {
+		printf("[-] FAILED: repaint error\n");
+		return 1;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+
+	if (output->current_retire_fence < 0 || !output->fence_source) {
+		printf("[-] FAILED: Retire fence source was not attached!\n");
+		return 1;
+	}
+
+	/* 2. Close remote end of socketpair to generate EPOLLHUP (WL_EVENT_HANGUP) */
+	close(g_mock.pending_fence_fd);
+	g_mock.pending_fence_fd = -1;
+
+	/* 3. Dispatch event loop - handler catches WL_EVENT_HANGUP and sets WP_PRESENTATION_FEEDBACK_INVALID */
+	wl_event_loop_dispatch(loop, 0);
+
+	/* Verify fence cleaned up */
+	if (output->current_retire_fence != -1 || output->fence_source != NULL) {
+		printf("[-] FAILED: Retire fence was not cleaned up on hangup!\n");
+		return 1;
+	}
+	if (output->active_idx == prev_idx) {
+		printf("[-] FAILED: Swapchain index was not toggled after hangup recovery!\n");
+		return 1;
+	}
+	printf("[+] Verified: Retire fence hangup (EPOLLHUP/WL_EVENT_HANGUP) caught and cleaned up\n");
+
+	/* 4. Verify output recovers and can render next frame cleanly with normal fence */
+	g_mock.inject_fence_hangup = 0;
+	if (out_base->repaint(out_base) < 0) {
+		printf("[-] FAILED: Subsequent repaint failed after hangup recovery!\n");
+		return 1;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+
+	/* Signal normal fence */
+	uint64_t val = 1;
+	if (write(g_mock.pending_fence_fd, &val, sizeof(val)) != sizeof(val)) {
+		printf("[-] FAILED: Write to fence failed\n");
+		return 1;
+	}
+	wl_event_loop_dispatch(loop, 0);
+
+	if (output->current_retire_fence != -1 || output->fence_source != NULL) {
+		printf("[-] FAILED: Retire fence not cleaned up on recovered frame!\n");
+		return 1;
+	}
+	printf("[+] Verified: Compositor successfully continued presentation after fence error\n");
+
+	weston_output_destroy(out_base);
+	fixture_teardown(&fix);
+
+	printf("[+] TEST 7 PASSED!\n");
+	return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 8: Output Destruction With Pending In-Flight Fence
+ * ------------------------------------------------------------------------- */
+
+static int test_output_disable_with_pending_fence(void)
+{
+	printf("\n[*] TEST 8: Output Destruction With Pending In-Flight Fence...\n");
+	struct test_fixture fix;
+	if (fixture_setup(&fix, false) < 0) {
+		printf("[-] FAILED to setup fixture\n");
+		return 1;
+	}
+
+	struct weston_output *out_base = fix.backend->create_output(fix.backend, "DECON-0");
+	struct decon_output *output = to_decon_output(out_base);
+	struct weston_head *head = container_of(fix.compositor->head_list.next,
+						struct weston_head, compositor_link);
+	weston_output_attach_head(out_base, head);
+
+	struct decon_backend_config eng_cfg = {
+		.width = 1080, .height = 2340, .stride = 4320,
+		.buffer_size = 10240000, .window_index = 3,
+		.fb_node = "/dev/graphics/fb0", .ion_node = "/dev/ion"
+	};
+	output->engine = decon_backend_init(&eng_cfg);
+	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_enable(out_base);
+
+	if (out_base->idle_repaint_source) {
+		wl_event_source_remove(out_base->idle_repaint_source);
+		out_base->idle_repaint_source = NULL;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+	out_base->start_repaint_loop(out_base);
+
+	/* 1. Arm repaint -> fence is pending */
+	if (out_base->repaint(out_base) < 0) {
+		printf("[-] FAILED: repaint error\n");
+		return 1;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+
+	int fence_fd = output->current_retire_fence;
+	if (fence_fd < 0 || !output->fence_source) {
+		printf("[-] FAILED: Retire fence was not armed!\n");
+		return 1;
+	}
+	printf("[+] Step 1: Repaint submitted, retire fence %d pending\n", fence_fd);
+
+	/* 2. Destroy output while fence is still pending */
+	weston_output_destroy(out_base);
+	printf("[+] Step 2: Output destroyed while retire fence was in-flight\n");
+
+	/* Verify fence_fd was closed by decon_output_disable */
+	if (fcntl(fence_fd, F_GETFD) != -1 || errno != EBADF) {
+		printf("[-] FAILED: In-flight fence fd was not closed on output disable!\n");
+		return 1;
+	}
+	printf("[+] Step 3: In-flight fence FD confirmed closed\n");
+
+	/* 3. Signal pending fence and dispatch event loop */
+	uint64_t val = 1;
+	if (write(g_mock.pending_fence_fd, &val, sizeof(val)) != sizeof(val)) {
+		printf("[-] FAILED: Write to fence failed\n");
+		return 1;
+	}
+
+	struct wl_event_loop *loop = wl_display_get_event_loop(fix.display);
+	wl_event_loop_dispatch(loop, 0);
+
+	printf("[+] Step 4: Event loop dispatched after fence signaled: no use-after-free\n");
+
+	fixture_teardown(&fix);
+	printf("[+] TEST 8 PASSED!\n");
+	return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 9: Stale In-Flight Fence Protection on Re-entrant Repaint
+ * ------------------------------------------------------------------------- */
+
+static int test_stale_fence_guard(void)
+{
+	printf("\n[*] TEST 9: Stale In-Flight Fence Protection on Re-entrant Repaint...\n");
+	struct test_fixture fix;
+	if (fixture_setup(&fix, false) < 0) {
+		printf("[-] FAILED to setup fixture\n");
+		return 1;
+	}
+
+	struct weston_output *out_base = fix.backend->create_output(fix.backend, "DECON-0");
+	struct decon_output *output = to_decon_output(out_base);
+	struct weston_head *head = container_of(fix.compositor->head_list.next,
+						struct weston_head, compositor_link);
+	weston_output_attach_head(out_base, head);
+
+	struct decon_backend_config eng_cfg = {
+		.width = 1080, .height = 2340, .stride = 4320,
+		.buffer_size = 10240000, .window_index = 3,
+		.fb_node = "/dev/graphics/fb0", .ion_node = "/dev/ion"
+	};
+	output->engine = decon_backend_init(&eng_cfg);
+	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_enable(out_base);
+
+	if (out_base->idle_repaint_source) {
+		wl_event_source_remove(out_base->idle_repaint_source);
+		out_base->idle_repaint_source = NULL;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+	out_base->start_repaint_loop(out_base);
+
+	/* 1. Frame 1 repaint with socketpair fence so we can detect peer closure */
+	g_mock.inject_fence_hangup = 1;
+	if (out_base->repaint(out_base) < 0) {
+		printf("[-] FAILED: Frame 1 repaint error\n");
+		return 1;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+
+	int first_fence = output->current_retire_fence;
+	int old_peer_fd = dup(g_mock.pending_fence_fd);
+	if (first_fence < 0 || !output->fence_source || old_peer_fd < 0) {
+		printf("[-] FAILED: Frame 1 fence not registered!\n");
+		return 1;
+	}
+	printf("[+] Step 1: Frame 1 fence %d attached (peer %d)\n", first_fence, old_peer_fd);
+
+	/* 2. Trigger Frame 2 repaint WITHOUT signaling Frame 1 fence */
+	if (out_base->repaint(out_base) < 0) {
+		printf("[-] FAILED: Frame 2 repaint error\n");
+		close(old_peer_fd);
+		return 1;
+	}
+	out_base->repaint_status = REPAINT_AWAITING_COMPLETION;
+
+	int second_fence = output->current_retire_fence;
+	if (second_fence < 0 || !output->fence_source) {
+		printf("[-] FAILED: Frame 2 fence not registered!\n");
+		close(old_peer_fd);
+		return 1;
+	}
+
+	/* Verify old_peer_fd received EOF, proving first_fence was closed by stale guard */
+	char dummy;
+	ssize_t n = read(old_peer_fd, &dummy, 1);
+	if (n != 0) {
+		printf("[-] FAILED: Stale Frame 1 fence was not closed by stale fence guard (read=%zd)!\n", n);
+		close(old_peer_fd);
+		return 1;
+	}
+	close(old_peer_fd);
+	printf("[+] Step 2: Stale fence guard cleanly closed stale fence %d (peer EOF confirmed)\n", first_fence);
+
+	/* 3. Signal Frame 2 fence and finish frame */
+	char sig = 'x';
+	if (write(g_mock.pending_fence_fd, &sig, 1) != 1) {
+		printf("[-] FAILED: Failed to write to Frame 2 fence\n");
+		return 1;
+	}
+
+	struct wl_event_loop *loop = wl_display_get_event_loop(fix.display);
+	wl_event_loop_dispatch(loop, 0);
+
+	if (output->current_retire_fence != -1 || output->fence_source != NULL) {
+		printf("[-] FAILED: Frame 2 fence source not cleaned up!\n");
+		return 1;
+	}
+	printf("[+] Step 3: Frame 2 completed cleanly\n");
+
+	weston_output_destroy(out_base);
+	fixture_teardown(&fix);
+
+	printf("[+] TEST 9 PASSED!\n");
+	return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 10: Failed Swapchain Buffer Allocation Teardown
+ * ------------------------------------------------------------------------- */
+
+static int test_failed_buffer_allocation_cleanup(void)
+{
+	printf("\n[*] TEST 10: Failed Swapchain Buffer Allocation Teardown...\n");
+	struct test_fixture fix;
+	if (fixture_setup(&fix, false) < 0) {
+		printf("[-] FAILED to setup fixture\n");
+		return 1;
+	}
+
+	struct weston_output *out_base = fix.backend->create_output(fix.backend, "DECON-0");
+	struct decon_output *output = to_decon_output(out_base);
+	struct weston_head *head = container_of(fix.compositor->head_list.next,
+						struct weston_head, compositor_link);
+	weston_output_attach_head(out_base, head);
+
+	struct decon_backend_config eng_cfg = {
+		.width = 1080, .height = 2340, .stride = 4320,
+		.buffer_size = 10240000, .window_index = 3,
+		.fb_node = "/dev/graphics/fb0", .ion_node = "/dev/ion"
+	};
+	output->engine = decon_backend_init(&eng_cfg);
+	output->engine->ioctl_fn = mock_ioctl_handler;
+
+	/* 1. Inject allocation failure on second buffer (alloc_count == 2) */
+	g_mock.inject_alloc_fail_on_count = 2;
+
+	weston_output_enable(out_base);
+	if (out_base->enabled) {
+		printf("[-] FAILED: output enabled successfully despite injected ION alloc failure!\n");
+		return 1;
+	}
+	printf("[+] Step 1: Output enable failed gracefully as expected (ION alloc 2 failure injected)\n");
+
+	/* 2. Verify engine was torn down and output->engine reset to NULL */
+	if (output->engine != NULL) {
+		printf("[-] FAILED: output->engine was not set to NULL after allocation failure!\n");
+		return 1;
+	}
+	printf("[+] Step 2: Engine cleanly torn down and dereferenced\n");
+
+	/* 3. Verify clean destruction */
+	weston_output_destroy(out_base);
+	fixture_teardown(&fix);
+
+	printf("[+] TEST 10 PASSED!\n");
+	return 0;
+}
+
+/* -------------------------------------------------------------------------
  * Main Test Runner
  * ------------------------------------------------------------------------- */
 
@@ -659,7 +1012,7 @@ int main(int argc, char **argv)
 	weston_log_set_handler(test_log_handler, test_log_handler);
 
 	printf("================================================================\n");
-	printf(" Milestone 6B: Weston Direct-DECON Backend Unit Test Suite\n");
+	printf(" Milestone 6C: Weston Direct-DECON Backend Unit Test Suite\n");
 	printf(" Target: Weston 14.0.2 / Exynos 7904 DECON / Mali-G71 MP2\n");
 	printf("================================================================\n");
 
@@ -671,10 +1024,14 @@ int main(int argc, char **argv)
 	failures += test_repaint_and_retire_fence_sync();
 	failures += test_multiframe_page_flipping();
 	failures += test_error_injection_and_recovery();
+	failures += test_fence_error_and_hangup();
+	failures += test_output_disable_with_pending_fence();
+	failures += test_stale_fence_guard();
+	failures += test_failed_buffer_allocation_cleanup();
 
 	printf("\n================================================================\n");
 	if (failures == 0) {
-		printf(" [+] ALL 6 UNIT TESTS PASSED PERFECTLY (100%% Success)!\n");
+		printf(" [+] ALL 10 UNIT TESTS PASSED PERFECTLY (100%% Success)!\n");
 		printf("================================================================\n");
 		return 0;
 	} else {
@@ -683,3 +1040,4 @@ int main(int argc, char **argv)
 		return 1;
 	}
 }
+

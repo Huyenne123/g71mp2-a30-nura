@@ -110,6 +110,8 @@ struct decon_backend *decon_backend_init(const struct decon_backend_config *cfg)
     }
 
     b->last_retire_fence = -1;
+    b->buffers[0].dma_buf_fd = -1;
+    b->buffers[1].dma_buf_fd = -1;
     return b;
 }
 
@@ -226,6 +228,7 @@ int decon_backend_setup_swapchain_ion(struct decon_backend *b, int map_cpu)
         struct ion_handle_data hdata;
         hdata.handle = buf->ion_handle;
         do_ioctl(b, b->ion_fd, ION_IOC_FREE, &hdata);
+        buf->ion_handle = 0;
 
         /* 3. Optional CPU mapping for software / Pixman rendering */
         if (map_cpu && buf->dma_buf_fd >= 0) {
