@@ -76,11 +76,16 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 4B: Standalone DECON Presentation Prototype (Next)
-- [ ] Implement standalone DECON scanout harness (`tests/decon_present_test.c`) driving `S3CFB_WIN_CONFIG`.
-- [ ] Validate full-screen (1080x2340) ION DMA-BUF allocation with native BGRA8888 pixel format.
-- [ ] Verify standalone presentation on physical screen using documented recovery mechanism (`stop surfaceflinger; stop vendor.hwcomposer-2-1`).
-- [ ] Validate frame synchronization fences (`fence_fd` / `retire_fence`).
+## Milestone 4B: Standalone DECON Presentation Prototype (Completed)
+- [x] Authoritative audit of `KBASE_IOCTL_MEM_IMPORT` ABI proving `BASE_MEM_IMPORT_TYPE_UMM = 2` (`FIND-019`).
+- [x] Reverse-engineer complete 1040-byte `S3CFB_WIN_CONFIG` ABI (8-byte header, 5 windows of 200 bytes, `FIND-020`).
+- [x] Disassemble kernel `decon_ioctl` and solve IDMA routing: IDMA channel 0 is dedicated to Window 3 (`FIND-021`).
+- [x] Implement standalone DECON scanout harness (`tests/decon_present_test.c`) driving `S3CFB_WIN_CONFIG`.
+- [x] Validate full-screen (1080x2340, 10.24 MB) ION DMA-BUF allocation, Mali-G71 GPU rendering, and direct CPU memory readback.
+- [x] Execute safe standalone presentation under documented recovery sandbox (`stop surfaceflinger; stop vendor.hwcomposer-2-1`).
+- [x] Verify hardware retire fence synchronization via `poll()` (`revents = 0x1`, `POLLIN`).
+- [x] Verify physical presentation: multi-color calibration bars displayed on the EA8076 Super AMOLED screen for 5 seconds (`FIND-022`).
+- [x] Author analysis reports: `analysis/milestone-4b-abi-audit.md`, `analysis/milestone-4b-safety-plan.md`, `analysis/milestone-4b-results.md`.
 
 ---
 

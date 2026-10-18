@@ -271,16 +271,56 @@ This ledger records every verified finding, observed binary behavior, and archit
 
 ---
 
-### FIND-018: DECON Presentation Arbitration & HWC2 Coexistence Boundary
-- **Description**: The Samsung DECON display driver (`/dev/graphics/fb0`) programs IDMA scanout windows via `S3CFB_WIN_CONFIG` (`0x441046d1`, 1040 bytes) accepting DMA-BUF file descriptors (`fd_idma[0]`) and sync fences (`fence_fd`). Because the driver lacks atomic DRM/KMS master lease arbitration, concurrent presentation while Android's `composer@2.1-service` (PID 3935) is actively compositing causes tearing, frame drops, or crashes `HWCWatchdogThread`. Standalone presentation requires exclusive access (either stopping Android graphics services or running under native postmarketOS / Alpine where Android daemons are absent).
+### FIND-019: Disassembly Proof of BASE_MEM_IMPORT_TYPE_UMM = 2 in Mali DDK
+- **Description**: In the proprietary Mali Bifrost DDK (`libGLES_mali-64.so`), the enumeration value for importing Linux DMA-BUF buffers via `KBASE_IOCTL_MEM_IMPORT` (`0xc0188016`) is `2` (`BASE_MEM_IMPORT_TYPE_UMM = 2`). The value `1` represents legacy ARM UMP (`BASE_MEM_IMPORT_TYPE_UMP`), resolving a discrepancy in early Midgard documentation.
 - **Supporting Evidence**:
-  - Disassembly of `ExynosDisplayFbInterface::deliverWinConfigData` (`0x70194`) in `libexynosdisplay.so`.
-  - Process audit confirms PID 3935 holds exclusive continuous write control of `/dev/graphics/fb0`.
-  - Documented recovery procedure verified: `stop surfaceflinger; stop vendor.hwcomposer-2-1` -> standalone scanout -> `start vendor.hwcomposer-2-1; start surfaceflinger`.
-- **Source / Artifact**: `artifacts/proprietary/libexynosdisplay.so` / `/dev/graphics/fb0`.
-- **Location**: `/dev/graphics/fb0`.
+  - Disassembly of `libGLES_mali-64.so` at `0xa63e30` (Gralloc import) and `0xacc3b0` (EGLImage import): passes `w2 = 2` to `base_mem_import_padded` (`0xacc7dc`).
+  - Kernel header inspection in `drivers/gpu/arm/midgard/mali_kbase_mem.c`: `enum base_mem_import_type { BASE_MEM_IMPORT_TYPE_INVALID = 0, BASE_MEM_IMPORT_TYPE_UMP = 1, BASE_MEM_IMPORT_TYPE_UMM = 2 }`.
+  - Live execution of `tests/decon_present_test`: `KBASE_IOCTL_MEM_IMPORT` with `type = 2` returns `0` and assigns GPU VA `0x41000`.
+- **Source / Artifact**: `artifacts/proprietary/libGLES_mali-64.so` / `artifacts/extracted/kernel.img`.
+- **Location**: `0xa63e30`, `0xacc3b0` in `libGLES_mali-64.so`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
 
+### FIND-020: Exact 200-Byte Window Layout of Samsung Exynos DECON ABI
+- **Description**: The Samsung Exynos 7904 DECON-F display driver uses a 1040-byte ioctl structure for `S3CFB_WIN_CONFIG` (`0x441046d1`). The structure consists of an 8-byte header (`int32_t fence`, `int32_t reserved`), followed by an array of 5 windows of exactly 200 bytes each (`5 * 200 = 1000` bytes), and 32 bytes of tail padding.
+- **Supporting Evidence**:
+  - Disassembly of `kernel.img` at `decon_ioctl` (`0x3b98f8 - 0x3ba420`) and `decon_win_config_to_regs_param` (`0x3ba7fc - 0x3ba8dc`).
+  - Coordinate offsets verified: `src_x` at offset 144, `src_y` at 148, `src_w` at 160, `src_h` at 164, `dst_x` at 168, `dst_y` at 172, `dst_w` at 176, `dst_h` at 180.
+  - Parameter offsets verified: `state` at offset 0, `fd_idma[0]` at 8, `fence_fd` at 20, `plane_alpha` at 28, `blending` at 32, `idma_type` at 36, `format` at 40.
+  - Compile-time `_Static_assert` and live hardware execution confirmed ABI compatibility.
+- **Source / Artifact**: `artifacts/extracted/kernel.img` / `tests/decon_present_test.c`.
+- **Location**: Kernel offsets `0x3b98f8 - 0x3ba8dc`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
 
+---
+
+### FIND-021: DECON Hardware IDMA Routing and Primary Scanout Window 3 Requirement
+- **Description**: On Exynos 7904 DECON-0, IDMA channel 0 is dedicated to Window 3. Kernel `decon_ioctl` explicitly enforces this constraint (`0x3ba154 - 0x3ba168`): any submission targeting Windows 0, 1, or 2 with `idma_type == 0` is rejected with `-EINVAL` (-22) via `cbz w8, #1580`. Only Window 3 (`x24 == 3`) skips this check and allows binding to IDMA 0.
+- **Supporting Evidence**:
+  - Kernel disassembly of `0x3ba154`:
+    `ldr w8, [x19]; cbnz w8, #20; cmp x24, #3; b.eq #12; ldur w8, [x26, #-156]; cbz w8, #1580;`
+  - Submitting Window 0 with `idma_type = 0` produced `errno = 22` (`-EINVAL`).
+  - Submitting Window 3 with `idma_type = 0` returned `0` (`Success`) and generated a valid retire fence descriptor (`fd = 12`).
+  - Dmesg logs from Android `composer@2.1-service` confirm `win id is 3 enabled` and `DMATYPE_0@` during primary composition.
+- **Source / Artifact**: `artifacts/extracted/kernel.img` / live execution on SM-A305F.
+- **Location**: Kernel offset `0x3ba154`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-022: End-to-End Hardware-Accelerated Physical Scanout on EA8076 Panel
+- **Description**: End-to-end zero-copy GPU rendering and physical display presentation was validated on the Samsung Galaxy A30 running kernel `4.4.302-p6-neyuKernel_legacy`. A 10.24 MB ION buffer allocated from `ion_noncontig_heap` was imported into Mali-G71 GPU (GPU VA `0x41000`), rendered into via EGLImage FBO (`GL_FRAMEBUFFER_COMPLETE`), verified via CPU `mmap()`, presented to DECON Window 3, and retired by hardware VSYNC (`poll()` on retire fence returned `revents = 0x1`). The multi-color calibration pattern physically displayed on the EA8076 Super AMOLED screen for 5 seconds.
+- **Supporting Evidence**:
+  - Live execution of `tests/decon_present_test` under root shell with SurfaceFlinger stopped.
+  - Return code `0` on `S3CFB_WIN_CONFIG` (`0x441046d1`).
+  - Retire fence fd 12 signaled by DECON hardware interrupt.
+  - Clean teardown and seamless recovery of Android UI within 2.5 seconds.
+- **Source / Artifact**: Live physical SM-A305F target device / `tests/decon_present_test`.
+- **Location**: `/dev/ion`, `/dev/mali0`, `/vendor/lib64/egl/libGLES_mali.so`, `/dev/graphics/fb0`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.

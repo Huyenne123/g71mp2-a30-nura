@@ -2,6 +2,7 @@
 artifacts/proprietary/*.so
 artifacts/extracted/*.dtb
 artifacts/extracted/*.gz
+artifacts/extracted/*.img
 artifacts/extracted/sysroot/
 
 # Compiled test binaries
@@ -10,6 +11,7 @@ tests/egl_offscreen_test
 tests/fb_probe
 tests/fb_present_test
 tests/ion_mali_import_test
+tests/decon_present_test
 
 
 # Temporary / build files

@@ -1,7 +1,7 @@
 # Project Status: Mali-G71 Open GPU Driver for postmarketOS
 
-- **Current Date**: 2026-10-17
-- **Active Phase**: Phase 2, 3 & 4 — **Milestones 3A, 3B, and 4A VERIFIED**. Moving to Milestone 4B (Standalone DECON Presentation / Libhybris Architecture) & Phase 4 (Mesa Panfrost Gap Analysis).
+- **Current Date**: 2026-10-18
+- **Active Phase**: Phase 2, 3 & 4 — **Milestones 3A, 3B, 4A, and 4B VERIFIED**. Moving to Milestone 4C (Libhybris Compatibility Bridge / Bionic Container for postmarketOS) & Phase 4 (Mesa Panfrost G71 Gap Analysis).
 - **Device Target**: Samsung Galaxy A30 (`SM-A305F` / `universal7904`)
 - **GPU Target**: ARM Mali-G71 MP2 (2 cores, r0p0, GPU ID `0x60A0`, Bifrost v6)
 - **Kernel Target**: Linux 4.4.302-p6 (`neyuKernel_legacy`) downstream with `mali_kbase r26p0`
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, and shared DMA-BUF render-target pipelines are fully established and physically verified on the Samsung Galaxy A30 (`SM-A305F`).
+Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, and **direct physical scanout on the EA8076 Super AMOLED panel** are fully established and physically verified on the Samsung Galaxy A30 (`SM-A305F`).
 
 **Milestone 3A (Proprietary EGL Offscreen Validation) — 100% physically verified**:
 1. Standalone `kbase_probe` verified low-level kernel handshake (UK 11.27), MTP page mapping (`0x3000`), context allocation, and memory management.
@@ -32,6 +32,12 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 5. Mapped the DMA-BUF descriptor directly into CPU memory via `mmap()` (independent of OpenGL) and verified raw pixel bytes (`[0]=0x00, [1]=0xff, [2]=0x40, [3]=0xff`), proving zero-copy 3D hardware rendering into shared memory.
 6. Analyzed DECON multi-window presentation arbitration (`S3CFB_WIN_CONFIG`), documented the HWC2 race condition boundary, and established the standalone postmarketOS presentation architecture (`FIND-018`).
 
+**Milestone 4B (Standalone DECON Presentation Prototype) — 100% physically verified**:
+1. Proved conclusively via disassembly of `libGLES_mali-64.so` and kernel headers that `BASE_MEM_IMPORT_TYPE_UMM` is `2` (`FIND-019`).
+2. Reverse-engineered the complete 1040-byte `S3CFB_WIN_CONFIG` ABI: 8-byte header, 5 windows of 200 bytes each, mapping exact coordinate and control offsets down to single bytes (`FIND-020`).
+3. Discovered that on Exynos 7904 DECON-0, IDMA channel 0 is exclusively dedicated to Window 3; Window 0 cannot bind to IDMA 0 (`FIND-021`).
+4. Built `tests/decon_present_test` executing under a verified recovery sandbox with SurfaceFlinger stopped. Successfully rendered full-screen 1080x2340 calibration pattern on Mali-G71 GPU, presented to DECON Window 3, signaled hardware retire fence (`revents = 0x1`), physically displayed image on the EA8076 Super AMOLED screen for 5 seconds, and restored Android UI cleanly (`FIND-022`).
+
 ---
 
 ## 2. Checkpoint Summary
@@ -40,7 +46,7 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | :--- | :--- | :--- |
 | **Hardware & Environment Inventory** | **VERIFIED** | `HARDWARE.md`, sysfs `gpuinfo` confirms Mali-G71 MP2 r0p0 `0x60A0`. |
 | **Artifact Ledger & Hashes** | **VERIFIED** | `artifacts/MANIFEST.md`, SHA-256 hashes recorded for all binaries + FDT + kernel config. |
-| **Evidence Ledger** | **VERIFIED** | `reverse-engineering/evidence-ledger.md`, Findings FIND-001 through FIND-018 verified. |
+| **Evidence Ledger** | **VERIFIED** | `reverse-engineering/evidence-ledger.md`, Findings FIND-001 through FIND-022 verified. |
 | **Kbase IOCTL Interface Mapping** | **VERIFIED** | `reverse-engineering/ioctl-analysis/kbase-ioctls.md`, 22 ioctls mapped from raw ARM64 machine code. |
 | **Architecture Strategy Decision** | **COMPLETED** | `architecture/ADR-001-graphics-stack-feasibility.md`. |
 | **Direct Kernel Probe (`kbase_probe`)** | **VERIFIED** | `tests/kbase_probe`, UK ABI 11.27 handshake, MTP mapping, Alloc, Free (FIND-007, FIND-008). |
@@ -53,7 +59,9 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | **ION DMA-BUF Allocation (Milestone 4A)** | **VERIFIED** | `analysis/milestone-4a-ion-allocation.md`, `tests/ion_mali_import_test` (FIND-016). |
 | **Shared Render-Target (Milestone 4A)** | **VERIFIED** | `analysis/milestone-4a-shared-render-target.md`, FBO Complete, CPU mmap readback (FIND-017). |
 | **DECON Presentation Architecture (4A)** | **COMPLETED** | `analysis/milestone-4a-decon-presentation.md`, `S3CFB_WIN_CONFIG` mapping & HWC2 safety (FIND-018). |
-| **End-to-End Test Harness** | **VERIFIED** | `tests/ion_mali_import_test.c`, `tests/README.md`. |
+| **ABI Audit (Milestone 4B)** | **VERIFIED** | `analysis/milestone-4b-abi-audit.md`, UMM type 2 proof, 200B window layout (FIND-019, FIND-020). |
+| **Safety Plan (Milestone 4B)** | **VERIFIED** | `analysis/milestone-4b-safety-plan.md`, HWC teardown/recovery, ADB persistence. |
+| **Physical Presentation (Milestone 4B)** | **VERIFIED** | `analysis/milestone-4b-results.md`, `tests/decon_present_test`, retire fence, AMOLED output (FIND-021, FIND-022). |
 
 ---
 
@@ -61,7 +69,7 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 
 1. **Absence of Mainline DRM in Downstream Kernel**:
    - The active kernel config disables DRM (`# CONFIG_DRM is not set`) in favor of Samsung's legacy DECON FB (`/dev/fb0`).
-   - Impact: Standard Wayland compositors requiring `/dev/dri/card0` cannot run without a framebuffer/HWC backend or kernel DRM port.
+   - Mitigation: Standalone DECON presentation is now verified functional; Wayland compositors under postmarketOS can drive DECON via a direct framebuffer/HWC backend or TinyWL DECON bridge.
 2. **Alpine libc Compatibility (musl vs Bionic)**:
    - Proprietary libraries are compiled against Android Bionic libc.
    - Mitigation: Requires `libhybris` or standalone Bionic loader wrapper to run in postmarketOS.
@@ -72,8 +80,7 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 
 ## 4. Next Concrete Tasks
 
-1. **TASK-001 (Milestone 4B)**: Implement standalone DECON scanout bridge binding ION DMA-BUFs with `S3CFB_WIN_CONFIG` for standalone physical scanout without SurfaceFlinger.
-2. **TASK-002 (Milestone 4C)**: Design minimal `libhybris` compatibility bridge or Bionic micro-container for Alpine Linux / postmarketOS.
-3. **TASK-003 (Phase 4)**: Audit Mesa Panfrost Bifrost v6 (G71) compiler & driver gaps to create the upstream enablement patch roadmap.
+1. **TASK-001 (Milestone 4C)**: Design and build minimal `libhybris` compatibility bridge or isolated Bionic micro-environment for Alpine Linux / postmarketOS.
+2. **TASK-002 (Phase 4)**: Audit Mesa Panfrost Bifrost v6 (G71) compiler & driver gaps to create the upstream enablement patch roadmap.
 
 

@@ -11,8 +11,8 @@ This directory contains standalone, reproducible test harnesses designed to vali
 | `kbase_probe.c` | `kbase_probe` | Kernel ABI (`/dev/mali0`) | Validates ioctl handshake (11.27), MTP mapping (`0x3000`), Context ID, and GPU memory allocation/free. | **None** (Freestanding, raw AArch64 syscalls) |
 | `egl_offscreen_test.c` | `egl_offscreen_test` | Userspace EGL/GLES | Validates headless EGL initialization, Pbuffer allocation, shader pipeline execution, hardware job IRQ, and dual-zone pixel readback. | Bionic `libc.so`, `libdl.so` |
 | `fb_probe.c` | `fb_probe` | Display ABI (`/dev/graphics/fb0`) | Inspects DECON FB geometry, pixel bitfields, stride, smem parameters, and probes mmap compatibility. | **None** (Freestanding, raw AArch64 syscalls) |
-| `fb_present_test.c` | `fb_present_test` | Display Presentation | Renders offscreen EGL pattern, adapts RGBA to target BGRA8888 with stride, performs scanout safety assessment, and saves test frame. | Bionic `libc.so`, `libdl.so` |
 | `ion_mali_import_test.c` | `ion_mali_import_test` | Buffer Sharing & Render Target | Allocates ION DMA-BUF, performs low-level Kbase import, binds EGLImage to FBO, executes 3D GPU render, and verifies via CPU mmap. | Bionic `libc.so`, `libdl.so` |
+| `decon_present_test.c` | `decon_present_test` | Physical Presentation Prototype | Full-screen (1080x2340) ION DMA-BUF allocation, Mali-G71 GPU rendering, DECON Window 3 presentation via `S3CFB_WIN_CONFIG`, retire fence wait, and AMOLED panel display. | Bionic `libc.so`, `libdl.so` |
 
 
 ---
@@ -287,7 +287,40 @@ adb shell "su -c /data/local/tmp/ion_mali_import_test"
 
 ---
 
-## 6. Isolation & Non-Destructive Operation Guarantee
+## 6. `decon_present_test`: Standalone DECON Physical Presentation Test
+
+### Description
+`decon_present_test.c` integrates the complete display stack to present a hardware-rendered frame directly to the EA8076 Super AMOLED panel:
+1. Allocates a full-screen 10.24 MB buffer from `/dev/ion` (`ion_noncontig_heap`, Heap ID Mask 1, flags 0).
+2. Performs low-level Kbase memory import via `KBASE_IOCTL_MEM_IMPORT` (`BASE_MEM_IMPORT_TYPE_UMM = 2`, GPU VA `0x41000`).
+3. Initializes headless EGL and GLES 2.0/3.2 context on the Mali-G71 GPU using `/vendor/lib64/egl/libGLES_mali.so`.
+4. Wraps the DMA-BUF in an `EGLImageKHR` (`DRM_FORMAT_ABGR8888`) and attaches it to an FBO (`GL_FRAMEBUFFER_COMPLETE`).
+5. Renders a multi-color calibration pattern (6 vertical bars, top accent header, centered focus box) and flushes GPU hardware execution via `glFinish()`.
+6. Verifies memory coherency via direct CPU `mmap()` of the DMA-BUF.
+7. Opens `/dev/graphics/fb0`, unblanks the panel (`FBIOBLANK = 0`), and submits `S3CFB_WIN_CONFIG` (`0x441046d1`) targeting Window 3 (Primary IDMA 0).
+8. Waits on the returned retire fence descriptor (`fence_fd = 12`) using `poll()` to verify hardware scanout completion.
+9. Holds the pattern on the AMOLED screen for 5 seconds.
+10. Tears down all resources and restores Android graphics services.
+
+### Building `decon_present_test`
+```bash
+clang --target=aarch64-linux-android -fuse-ld=lld -nostdlib -pie -ffreestanding \
+  -Wl,-dynamic-linker,/system/bin/linker64 \
+  -Lartifacts/extracted/sysroot -lc -ldl \
+  tests/decon_present_test.c -o tests/decon_present_test
+```
+
+### Running `decon_present_test` on Device
+Using the safe-runner sequence:
+```bash
+adb push tests/decon_present_test /data/local/tmp/decon_present_test
+adb shell "su -c 'chmod 755 /data/local/tmp/decon_present_test'"
+adb shell "su -c '/system/bin/stop surfaceflinger; /system/bin/stop vendor.hwcomposer-2-1; sleep 1; /data/local/tmp/decon_present_test; TEST_RET=\$?; /system/bin/start vendor.hwcomposer-2-1; /system/bin/start surfaceflinger; exit \$TEST_RET'"
+```
+
+---
+
+## 7. Isolation & Non-Destructive Operation Guarantee
 
 All test binaries operate under strict isolation constraints:
 - Executables are transferred solely to `/data/local/tmp/`.
