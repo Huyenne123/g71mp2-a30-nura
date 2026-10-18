@@ -12,10 +12,12 @@ tests/fb_probe
 tests/fb_present_test
 tests/ion_mali_import_test
 tests/decon_present_test
+tests/decon_flip_test
 
 
 # Temporary / build files
 *.pyc
 __pycache__/
 .cache/
+scratch/
 

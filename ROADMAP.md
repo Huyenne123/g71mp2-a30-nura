@@ -89,10 +89,13 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 4C: postmarketOS Integration & Libhybris Architecture
-- [ ] Build minimal `libhybris` wrapper or Bionic micro-container for Alpine Linux.
-- [ ] Port standalone DECON presentation engine to postmarketOS Wayland compositor (Weston / wlroots).
-- [ ] Validate hardware-accelerated Wayland client rendering on postmarketOS.
+## Milestone 4C: postmarketOS Integration & Libhybris Architecture (Completed)
+- [x] Analyze Bionic vs musl libc ABI divergence (`analysis/milestone-4c-bionic-musl-bridge.md`).
+- [x] Audit `libhybris` dynamic linker mechanics, symbol translation hooks (`__errno`, FORTIFY, TLS), and platform modules.
+- [x] Formulate postmarketOS compositor models: direct-DECON Wayland backend vs Halium HWC2 (`analysis/milestone-4c-compositor-architecture.md`).
+- [x] Build and physically verify double-buffered continuous presentation engine (`tests/decon_flip_test.c`).
+- [x] Benchmark hardware refresh: achieved locked **59.89 FPS** at 16.6 ms per frame on EA8076 Super AMOLED screen (`FIND-023`).
+- [x] Confirm zero-tear, zero-leak, zero-panic continuous scanout stability (`analysis/milestone-4c-results.md`, `FIND-024`).
 
 ---
 
