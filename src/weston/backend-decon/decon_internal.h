@@ -26,6 +26,8 @@
 #ifndef DECON_INTERNAL_H
 #define DECON_INTERNAL_H
 
+#include "config.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -36,14 +38,14 @@
 #include <sys/types.h>
 
 #include <libweston/libweston.h>
-#include <libweston/backend.h>
-#include <libweston/pixel-formats.h>
-#include <libweston/pixman-renderer.h>
-#include <shared/helpers.h>
-#include <shared/weston-drm-fourcc.h>
+#include "backend.h"
+#include "pixel-formats.h"
+#include "pixman-renderer.h"
+#include "shared/helpers.h"
+#include "shared/weston-drm-fourcc.h"
 
-#include "backend-decon.h"
-#include "../../compositor/decon_backend.h"
+#include <libweston/backend-decon.h>
+#include "decon_backend.h"
 
 #define DECON_DEFAULT_OUTPUT_NAME "DECON-0"
 #define DECON_DEFAULT_REFRESH_MHZ 60000
@@ -55,47 +57,21 @@
 #define WP_PRESENTATION_FEEDBACK_INVALID 0
 #endif
 
-struct weston_decon_backend {
-	struct weston_backend base;
-	struct weston_compositor *compositor;
-	struct weston_decon_backend_config config;
-
-	const struct pixel_format_info **formats;
-	unsigned int formats_count;
-
-	struct decon_head *head;
-	struct decon_output *output;
-};
-
 struct decon_head {
 	struct weston_head base;
 	struct weston_decon_backend *backend;
 };
 
-struct decon_output {
-	struct weston_output base;
-	struct weston_decon_backend *backend;
-
-	struct weston_mode mode;
-	struct wl_event_source *finish_frame_timer;
-	struct wl_event_source *fence_source;
-
-	/* Underlying hardware presentation engine */
-	struct decon_backend *engine;
-
-	/* Weston renderbuffers (backed by CPU mmap of ION DMA-BUFs) */
-	struct weston_renderbuffer *renderbuffers[2];
-	uint32_t active_idx;
-
-	/* In-flight retire fence descriptor */
-	int current_retire_fence;
+struct weston_decon_backend {
+	struct weston_backend base;
+	struct weston_compositor *compositor;
+	struct weston_decon_backend_config config;
+	struct decon_head *head;
+	struct wl_listener output_created_listener;
+	struct wl_list output_list;
+	const struct pixel_format_info **formats;
+	unsigned int formats_count;
 };
-
-static inline struct weston_decon_backend *
-to_weston_decon_backend(struct weston_backend *base)
-{
-	return container_of(base, struct weston_decon_backend, base);
-}
 
 static inline struct decon_head *
 to_decon_head(struct weston_head *base)
@@ -103,10 +79,30 @@ to_decon_head(struct weston_head *base)
 	return container_of(base, struct decon_head, base);
 }
 
-static inline struct decon_output *
-to_decon_output(struct weston_output *base)
+struct decon_output {
+	struct weston_output base;
+	struct weston_decon_backend *backend;
+	struct weston_mode mode;
+	struct decon_backend *engine;
+
+	struct weston_renderbuffer *renderbuffers[2];
+	uint32_t active_idx;
+
+	struct wl_event_source *finish_frame_timer;
+	struct wl_event_source *fence_source;
+	int current_retire_fence;
+};
+
+static inline struct weston_decon_backend *
+to_weston_decon_backend(struct weston_backend *backend)
 {
-	return container_of(base, struct decon_output, base);
+	return container_of(backend, struct weston_decon_backend, base);
+}
+
+static inline struct decon_output *
+to_decon_output(struct weston_output *output)
+{
+	return container_of(output, struct decon_output, base);
 }
 
 #endif /* DECON_INTERNAL_H */

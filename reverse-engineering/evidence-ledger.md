@@ -504,6 +504,22 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
+
+### FIND-036: In-Tree Weston Direct-DECON Backend & Real Wayland-Client Presentation
+- **Description**: Weston 14.0.2 with the Direct-DECON backend (`decon-backend.so`) was compiled natively for ARM64 under an Alpine Linux v3.21.8 environment (`musl 1.2.5`) and verified on the physical Samsung Galaxy A30 (`SM-A305F`, Exynos 7904, Linux 4.4.302). Weston successfully bound to DECON-0 Window 3 (IDMA channel 0) using ION DMA-BUFs mmap'd to Pixman software renderbuffers. A real Wayland client (`weston-simple-shm`) connected to the compositor socket, submitted damaged surfaces, and continuously presented animated frames to the physical EA8076 Super AMOLED screen across 480+ consecutive hardware frames at 60 Hz VSYNC. Hardware retire fences (`win_data.fence`, fd 24) signaled completion on every frame via the Wayland event loop, safely toggling swapchain buffers and pacing client redraws without display glitches or memory leaks. Android display services (`surfaceflinger`, `hwcomposer-2-1`) were cleanly stopped before presentation and completely restored upon compositor exit.
+- **Supporting Evidence**:
+  - Pinned in-tree patch: `packaging/0001-weston-14-direct-decon-backend.patch` (59 KB, 14 files modified).
+  - Target build log: 106 Meson targets built and installed cleanly under Alpine Linux aarch64 with GCC 14.2.0.
+  - Dependency audit: `ldd /usr/lib/libweston-14/decon-backend.so` links exclusively to `/lib/ld-musl-aarch64.so.1` (0 undefined symbols, 0 Bionic dependencies).
+  - Runtime telemetry: `weston --backend=decon -- /usr/bin/weston-simple-shm` executed live on device, logging repaints #1 through #480+ with retire fence signaling (flags `0x1`).
+  - Full restoration: Android HWC2 and SurfaceFlinger restored to normal operation with exit status 0.
+- **Source / Artifact**: `packaging/0001-weston-14-direct-decon-backend.patch` / `analysis/milestone-6d-build-matrix.md` / `analysis/milestone-6d-weston-runtime.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine/`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+
 
 
 

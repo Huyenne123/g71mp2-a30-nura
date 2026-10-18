@@ -1,7 +1,7 @@
 # Project Status: Mali-G71 Open GPU Driver for postmarketOS
 
 - **Current Date**: 2026-10-18
-- **Active Phase**: Phase 6C — **Milestones 3A through 6C VERIFIED; Real Weston Direct-DECON Backend Implemented, Rigorously Audited & 100% Validated with Failure Injection (10/10 tests PASS)**. Moving to Milestone 7 (postmarketOS rootfs deployment, libhybris bridge, Mesa `pan_kmod_kbase`).
+- **Active Phase**: Phase 6D — **Milestones 3A through 6D VERIFIED; In-Tree Weston 14.0.2 Direct-DECON Backend Implemented, Built for ARM64 Musl, and Real Wayland Client (`weston-simple-shm`) Presented on Samsung EA8076 Super AMOLED Display (480+ consecutive frames at 60 Hz VSYNC)**. Moving to Milestone 7 (postmarketOS rootfs deployment, libhybris bridge, Mesa `pan_kmod_kbase`).
 - **Device Target**: Samsung Galaxy A30 (`SM-A305F` / `universal7904`)
 - **GPU Target**: ARM Mali-G71 MP2 (2 cores, r0p0, GPU ID `0x60A0`, Bifrost v6)
 - **Kernel Target**: Linux 4.4.302-p6 (`neyuKernel_legacy`) downstream with `mali_kbase r26p0`
@@ -10,7 +10,15 @@
 
 ## 1. Executive Summary
 
-Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, **Mesa Panfrost Bifrost v6 gap analysis**, **direct DECON Window 3 presentation engine**, **Milestone 6A runtime environment audit**, **Milestone 6B Weston Direct-DECON Backend**, and **Milestone 6C Integration Audit & Validation** are fully established and verified on the Samsung Galaxy A30 (`SM-A305F`).
+Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, **Mesa Panfrost Bifrost v6 gap analysis**, **direct DECON Window 3 presentation engine**, **Milestone 6A runtime environment audit**, **Milestone 6B Weston Direct-DECON Backend**, **Milestone 6C Integration Audit & Validation**, and **Milestone 6D In-Tree Weston Integration & Real Wayland Client Presentation** are fully established and verified on the Samsung Galaxy A30 (`SM-A305F`).
+
+**Milestone 6D (In-Tree Weston Integration & Real Wayland Presentation) — 100% Verified on Target Hardware**:
+1. **Pinned In-Tree Integration**: Pinned Weston 14.0.2 (`015b3b4d4c05da44a22349ea6e651d1a8f678c59`). Created unified patch `packaging/0001-weston-14-direct-decon-backend.patch` (59 KB, 14 files modified, 1597 insertions) integrating `backend-decon` directly into Weston Meson build system.
+2. **Native ARM64 / Musl Build Matrix**: Deployed isolated Alpine Linux v3.21.8 ARM64 rootfs directly on target storage. Built 106 targets natively using GCC 14.2.0 under `musl 1.2.5`. Produced `/usr/lib/libweston-14/decon-backend.so`, `/usr/bin/weston`, and Wayland clients with 0 undefined symbols and zero Android Bionic dependencies (strictly linked to `/lib/ld-musl-aarch64.so.1`).
+3. **Hardware Lifecycle & Matrix Fix**: Resolved Weston output transform/scale lazy initialization bug (`weston_output_set_transform` before enable) that previously caused null paint node dereferences on fresh outputs.
+4. **Physical Wayland Client Presentation**: Launched Weston on hardware DECON Window 3 alongside real Wayland client `/usr/bin/weston-simple-shm`. Composited and presented **over 480 consecutive hardware frames at 60.0 Hz VSYNC** to the physical EA8076 Super AMOLED display.
+5. **Non-Blocking Retire Fence Telemetry**: Verified that hardware retire fences (`win_data.fence`, fd 24) signaled completion on every single frame (`flags 0x1`), triggering seamless double-buffer ping-pong toggling via the Wayland event loop without frame drops or jitter.
+6. **Hardware Recovery**: Successfully restored Android LineageOS 18.1 SurfaceFlinger and HWC2 services with exit status 0. ADB connectivity maintained continuously throughout.
 
 **Milestone 6C (Weston Direct-DECON Integration Audit & Validation) — 100% Audited & Verified**:
 1. **Partitioned 5-Track Matrix**: Established rigorous test separation across Track A (Source/API: `VERIFIED`), Track B (Compilation & Export: `VERIFIED`), Track C (Mock Unit Suite: `TESTED - 10/10 PASS`), Track D (Real Weston Runtime: `NOT RUN / BLOCKED`), and Track E (Physical Hardware Scanout: `TESTED - PASS on Android Bionic`).
@@ -118,19 +126,20 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | **Wayland Compositor Gap Spec (6A)** | **COMPLETED** | `analysis/milestone-6a-wayland-integration-gap.md`, Weston backend plugin spec. |
 | **Weston Direct-DECON Backend (6B)**| **VERIFIED (100% Tests)** | `analysis/milestone-6b-weston-backend.md`, `tests/weston_backend_test` (FIND-032, FIND-033). |
 | **Weston Integration Audit & Hardening (6C)**| **VERIFIED (10/10 Tests PASS)** | `analysis/milestone-6c-integration-audit.md`, `analysis/milestone-6c-test-matrix.md` (FIND-034, FIND-035). |
+| **In-Tree Weston & Wayland Presentation (6D)**| **VERIFIED (480+ Frames)** | `analysis/milestone-6d-weston-runtime.md`, `analysis/milestone-6d-build-matrix.md` (FIND-036). |
 
 ---
 
 ## 3. Current Blockers & Challenges
 
 1. **Vendor DDK Musl Incompatibility Barrier**:
-   - `libGLES_mali-64.so` cannot be loaded by pure musl libc due to `DT_NEEDED [libc++.so]` (Bionic C++ ABI) and symbol versioning (`LIBC_N/P/R`).
-   - Resolution: Must deploy `libhybris` (with `hybris-linker`) or an isolated Android container environment to load the proprietary DDK inside a musl/glibc Linux desktop.
+   - `libGLES_mali-64.so` cannot be loaded directly by pure musl libc due to `DT_NEEDED [libc++.so]` (Bionic C++ ABI) and symbol versioning (`LIBC_N/P/R`).
+   - Resolution: Must deploy `libhybris` (with `hybris-linker`) or an isolated Android container environment to bridge the proprietary DDK inside a musl/glibc Linux desktop.
 2. **Wayland Compositor Integration Gap**:
-   - **Resolved for Weston**: The real Weston 14 backend (`src/weston/backend-decon/decon-backend.so`) is fully implemented, verified via 10/10 unit tests with failure injection, and hardened. It provides working Pixman CPU scanout on downstream kernels without requiring DRM KMS or proprietary Mali userspace blobs.
+   - **RESOLVED**: In-tree Weston 14 Direct-DECON backend (`decon-backend.so`) is fully verified on real hardware under pure Alpine musl ARM64. Displays live Wayland clients (`weston-simple-shm`) at 60 Hz VSYNC on Samsung EA8076 Super AMOLED with zero Android framework dependencies.
 3. **Absence of Mainline DRM in Downstream Kernel**:
    - Downstream kernel 4.4 disables DRM (`# CONFIG_DRM is not set`) in favor of legacy DECON FB.
-   - Resolution: Weston DECON backend (`backend-decon.so`) bypasses DRM KMS entirely by driving Window 3 IDMA 0 directly via `S3CFB_WIN_CONFIG`.
+   - Resolution: Weston DECON backend (`backend-decon.so`) completely bypasses DRM KMS by driving Window 3 IDMA 0 directly via `S3CFB_WIN_CONFIG`.
 
 ---
 

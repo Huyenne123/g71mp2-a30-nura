@@ -162,6 +162,27 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
+## Milestone 6D: In-Tree Weston Integration & Real Wayland-Client Presentation (Completed)
+- [x] Pin exact Weston 14.0.2 source revision (`015b3b4d4c05da44a22349ea6e651d1a8f678c59`).
+- [x] Integrate `backend-decon` in-tree into Weston 14.0.2 source tree (`scratch/weston/libweston/backend-decon/`).
+- [x] Add `backend-decon` to Meson build targets, options, and frontend dispatcher (`frontend/main.c`, `frontend/config-helpers.c`).
+- [x] Generate unified in-tree patch: `packaging/0001-weston-14-direct-decon-backend.patch` (59 KB, 14 files modified, 1597 insertions).
+- [x] Deploy target userspace: set up Alpine Linux v3.21.8 ARM64 (`aarch64`) musl environment directly on physical Galaxy A30 storage.
+- [x] Build complete Weston compositor and `decon-backend.so` natively for ARM64 using GCC 14.2.0 under `musl 1.2.5` (106 targets compiled and linked, 0 undefined symbols, linked strictly to `/lib/ld-musl-aarch64.so.1`).
+- [x] Resolve output transform and scale matrix initialization timing bug in `libweston` (`decon_backend_output_configure`).
+- [x] Validate mock event-loop execution under Alpine chroot (`weston --backend=decon --mock`).
+- [x] Verify underlying hardware DECON engine baseline via standalone harness (`tests/decon_present_test`).
+- [x] Execute live Wayland compositor session on hardware DECON Window 3 alongside real Wayland client `/usr/bin/weston-simple-shm`.
+- [x] Verify continuous physical presentation on Samsung EA8076 Super AMOLED screen across 480+ consecutive hardware frames at 60.0 Hz VSYNC.
+- [x] Verify non-blocking retire fence signaling (`win_data.fence`, fd 24, flags `0x1`) via Wayland event loop (`wl_event_loop_add_fd`).
+- [x] Verify clean, glitch-free recovery of Android LineageOS 18.1 SurfaceFlinger and HWC2 services.
+- [x] Deliver Milestone 6D technical reports:
+  - `analysis/milestone-6d-build-matrix.md`
+  - `analysis/milestone-6d-weston-runtime.md`
+- [x] Record FIND-036 in `reverse-engineering/evidence-ledger.md`.
+
+---
+
 ## Milestone 7: postmarketOS Weston Integration & Libhybris / Panfrost Translation (Next)
 - [ ] Implement `libhybris` dynamic linker integration to bridge proprietary `libGLES_mali-64.so` with Linux musl/glibc.
 - [ ] Deploy `weston-backend-decon` package to a physical postmarketOS rootfs and test native graphical session under musl.

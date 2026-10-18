@@ -74,6 +74,13 @@ decon_fence_handler(int fd, uint32_t mask, void *data)
 	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
 	weston_output_finish_frame(&output->base, &ts, flags);
 
+	static uint32_t fence_count = 0;
+	fence_count++;
+	if (fence_count <= 5 || fence_count % 60 == 0) {
+		weston_log("[+] decon: Retire fence #%u signaled (vsync completion, flags 0x%x)\n",
+			   fence_count, flags);
+	}
+
 	/* Toggle ping-pong active buffer index */
 	output->active_idx ^= 1;
 	if (output->engine)
@@ -146,6 +153,13 @@ decon_output_repaint(struct weston_output *base)
 			weston_log("[-] decon: S3CFB_WIN_CONFIG ioctl failed: %s\n",
 				   strerror(errno));
 			return -1;
+		}
+
+		static uint32_t repaint_count = 0;
+		repaint_count++;
+		if (repaint_count <= 5 || repaint_count % 60 == 0) {
+			weston_log("[+] decon: Hardware repaint #%u presented on buffer %u (fence fd %d)\n",
+				   repaint_count, output->active_idx, retire_fence);
 		}
 	}
 
@@ -407,7 +421,6 @@ decon_output_create(struct weston_backend *backend, const char *name)
 	output->mode.refresh = b->config.refresh_mhz;
 	wl_list_insert(&output->base.mode_list, &output->mode.link);
 
-	output->base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
 	output->base.native_scale = 1;
 	output->base.current_scale = 1;
 	output->base.original_scale = 1;

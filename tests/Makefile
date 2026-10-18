@@ -3,15 +3,17 @@
 
 CC ?= clang
 CFLAGS ?= -O2 -g -Wall -Wextra
-CPPFLAGS ?= -I../src/weston/backend-decon \
+CPPFLAGS ?= -I. \
+            -I../src/weston/backend-decon \
             -I../src/compositor \
             -I/usr/include/drm \
             -I../scratch/sysroot/usr/include/libweston-14 \
             -I../scratch/sysroot/usr/include/pixman-1 \
             -I../scratch/sysroot/usr/include \
             -I../scratch/weston \
+            -I../scratch/weston/include \
             -I../scratch/weston/libweston \
-            -include "../scratch/weston/config.h"
+            -include "config.h"
 
 LDFLAGS ?= -L../scratch/sysroot/usr/lib/x86_64-linux-gnu \
            -Wl,-rpath,/home/neyuh/mali-a30/scratch/sysroot/usr/lib/x86_64-linux-gnu

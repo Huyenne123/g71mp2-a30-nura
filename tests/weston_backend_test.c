@@ -380,6 +380,7 @@ static int test_output_lifecycle(void)
 	}
 	output->engine->ioctl_fn = mock_ioctl_handler;
 
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	if (!out_base->enabled) {
@@ -458,6 +459,7 @@ static int test_repaint_and_retire_fence_sync(void)
 	};
 	output->engine = decon_backend_init(&eng_cfg);
 	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	/* 1. Start repaint loop */
@@ -559,6 +561,7 @@ static int test_multiframe_page_flipping(void)
 	};
 	output->engine = decon_backend_init(&eng_cfg);
 	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	struct wl_event_loop *loop = wl_display_get_event_loop(fix.display);
@@ -635,6 +638,7 @@ static int test_error_injection_and_recovery(void)
 	};
 	output->engine = decon_backend_init(&eng_cfg);
 	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	if (out_base->idle_repaint_source) {
@@ -693,6 +697,7 @@ static int test_fence_error_and_hangup(void)
 	};
 	output->engine = decon_backend_init(&eng_cfg);
 	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	struct wl_event_loop *loop = wl_display_get_event_loop(fix.display);
@@ -792,6 +797,7 @@ static int test_output_disable_with_pending_fence(void)
 	};
 	output->engine = decon_backend_init(&eng_cfg);
 	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	if (out_base->idle_repaint_source) {
@@ -869,6 +875,7 @@ static int test_stale_fence_guard(void)
 	};
 	output->engine = decon_backend_init(&eng_cfg);
 	output->engine->ioctl_fn = mock_ioctl_handler;
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 
 	if (out_base->idle_repaint_source) {
@@ -973,6 +980,7 @@ static int test_failed_buffer_allocation_cleanup(void)
 	/* 1. Inject allocation failure on second buffer (alloc_count == 2) */
 	g_mock.inject_alloc_fail_on_count = 2;
 
+	weston_output_set_transform(out_base, WL_OUTPUT_TRANSFORM_NORMAL);
 	weston_output_enable(out_base);
 	if (out_base->enabled) {
 		printf("[-] FAILED: output enabled successfully despite injected ION alloc failure!\n");
