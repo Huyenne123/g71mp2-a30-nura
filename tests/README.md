@@ -14,6 +14,8 @@ This directory contains standalone, reproducible test harnesses designed to vali
 | `ion_mali_import_test.c` | `ion_mali_import_test` | Buffer Sharing & Render Target | Allocates ION DMA-BUF, performs low-level Kbase import, binds EGLImage to FBO, executes 3D GPU render, and verifies via CPU mmap. | Bionic `libc.so`, `libdl.so` |
 | `decon_present_test.c` | `decon_present_test` | Physical Presentation Prototype | Full-screen (1080x2340) ION DMA-BUF allocation, Mali-G71 GPU rendering, DECON Window 3 presentation via `S3CFB_WIN_CONFIG`, retire fence wait, and AMOLED panel display. | Bionic `libc.so`, `libdl.so` |
 | `decon_flip_test.c` | `decon_flip_test` | Double-Buffered 60 FPS Swapchain | 2x ION DMA-BUF ping-pong swapchain, Mali GPU animated rendering, continuous DECON Window 3 page-flipping, retire fence synchronization, and 59.89 FPS benchmark. | Bionic `libc.so`, `libdl.so` |
+| `bionic_shim_test.c` | `bionic_shim_test` | Bionic-Musl Runtime Shim | Validates `libbionic_musl_shim.so` runtime: errno redirection, `_ctype_`, `__android_log_print`, `property_get/set`, FORTIFY checks, and ION memory wrappers. | Bionic `libc.so`, `libdl.so` |
+| `decon_compositor_test.c` | `decon_compositor_test` | Modular Wayland DECON Compositor | 120-frame simulated Wayland compositor presentation loop via `libdecon_backend.so`, multi-window compositing, and 59.34 FPS physical AMOLED benchmark. | Bionic `libc.so`, `libdl.so` |
 
 
 ---
@@ -349,7 +351,66 @@ adb shell "su -c '/system/bin/stop surfaceflinger; /system/bin/stop vendor.hwcom
 
 ---
 
-## 8. Isolation & Non-Destructive Operation Guarantee
+## 7. `bionic_shim_test`: Bionic-Musl Runtime Compatibility Harness
+
+### Description
+`bionic_shim_test.c` dynamically loads `libbionic_musl_shim.so` via `dlopen` and verifies that all 6 core subsystem wrappers behave identically to Android Bionic under Linux musl:
+1. `__errno()` redirection to thread-local storage.
+2. `_ctype_` character classification table lookup.
+3. Android logging emulation via `__android_log_print` without `/dev/logd`.
+4. System property emulation via `property_get` and `property_set`.
+5. Bionic FORTIFY buffer overflow protection (`__memcpy_chk`).
+6. Direct ION memory allocation, DMA-BUF export, userspace handle release, and close (`ion_*`).
+
+### Building `bionic_shim_test`
+```bash
+clang --target=aarch64-linux-android -fuse-ld=lld -nostdlib -pie -ffreestanding \
+  -Wl,-dynamic-linker,/system/bin/linker64 \
+  -Lartifacts/extracted/sysroot -lc -ldl \
+  tests/bionic_shim_test.c -o tests/bionic_shim_test
+```
+
+### Running `bionic_shim_test` on Device
+```bash
+adb push tests/bionic_shim_test /data/local/tmp/mali-test/
+adb push src/bridge/libbionic_musl_shim.so /data/local/tmp/mali-test/
+adb shell "su -c /data/local/tmp/mali-test/bionic_shim_test"
+```
+
+---
+
+## 8. `decon_compositor_test`: Standalone Direct-DECON Wayland Compositor Benchmark
+
+### Description
+`decon_compositor_test.c` integrates `libdecon_backend.so` to validate an active, multi-window Wayland compositor presentation loop:
+1. Dynamically links proprietary `libGLES_mali.so` through `decon_backend`.
+2. Allocates a double-buffered ION DMA-BUF swapchain (2x 10.24 MB) and creates EGLImage FBOs.
+3. Renders a simulated Wayland desktop across 120 consecutive frames (dynamic gradient background, main application window, animated floating dialog window).
+4. Submits each frame to Samsung DECON Window 3 (IDMA channel 0) via `S3CFB_WIN_CONFIG` (`0x441046d1`).
+5. Synchronizes hardware scanout via the DECON retire fence (`poll(POLLIN)`).
+6. Confirms locked 60 Hz VSYNC pacing (16.6 ms per frame, 59.34 FPS average) with sub-millisecond steady-state jitter (< 0.16 ms).
+
+### Building `decon_compositor_test`
+```bash
+clang --target=aarch64-linux-android -fuse-ld=lld -nostdlib -pie -ffreestanding \
+  -Wl,-dynamic-linker,/system/bin/linker64 \
+  -Lartifacts/extracted/sysroot -Lsrc/compositor -lc -ldl \
+  src/compositor/decon_backend.c tests/decon_compositor_test.c \
+  -o tests/decon_compositor_test
+```
+
+### Running `decon_compositor_test` on Device
+```bash
+adb push tests/decon_compositor_test /data/local/tmp/mali-test/
+adb push src/compositor/libdecon_backend.so /data/local/tmp/mali-test/
+adb shell "su -c 'stop surfaceflinger; stop vendor.hwcomposer-2-1; sleep 1; \
+  /data/local/tmp/mali-test/decon_compositor_test; \
+  start vendor.hwcomposer-2-1; start surfaceflinger'"
+```
+
+---
+
+## 9. Isolation & Non-Destructive Operation Guarantee
 
 All test binaries operate under strict isolation constraints:
 - Executables are transferred solely to `/data/local/tmp/`.

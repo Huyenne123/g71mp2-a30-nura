@@ -13,6 +13,11 @@ tests/fb_present_test
 tests/ion_mali_import_test
 tests/decon_present_test
 tests/decon_flip_test
+tests/bionic_shim_test
+tests/decon_compositor_test
+src/bridge/*.so
+src/compositor/*.so
+src/compositor/*.o
 
 
 # Temporary / build files
