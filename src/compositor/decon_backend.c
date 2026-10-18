@@ -323,6 +323,7 @@ int decon_backend_present(struct decon_backend *b, int *out_retire_fence)
         win_data.config[i].fd_idma[1] = -1;
         win_data.config[i].fd_idma[2] = -1;
         win_data.config[i].fence_fd = -1;
+        win_data.config[i].rel_fence = -1;
     }
 
     /* Window 3: Primary scanout window (IDMA channel 0 routing, FIND-021) */
@@ -348,6 +349,14 @@ int decon_backend_present(struct decon_backend *b, int *out_retire_fence)
     /* 3. Issue DECON presentation ioctl */
     int ret = do_ioctl(b, b->fb_fd, S3CFB_WIN_CONFIG_IOCTL, &win_data);
     if (ret < 0) return ret;
+
+    /* Close all release fences returned by DECON to prevent FD leaks (FIND-037) */
+    for (int i = 0; i < 5; i++) {
+        if (win_data.config[i].rel_fence >= 0) {
+            close(win_data.config[i].rel_fence);
+            win_data.config[i].rel_fence = -1;
+        }
+    }
 
     b->last_retire_fence = win_data.fence;
     if (out_retire_fence) *out_retire_fence = win_data.fence;

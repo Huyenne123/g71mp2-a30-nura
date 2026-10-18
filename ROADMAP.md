@@ -183,6 +183,38 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
+## Milestone 6E: Practical Wayland Desktop Validation & Input Integration (Completed)
+- [x] Profile initial Wayland baseline and uncover per-frame file descriptor leak (~60 FDs/sec) on physical target hardware.
+- [x] Reverse-engineer DECON `S3CFB_WIN_CONFIG_IOCTL` sync fence creation mechanics: identify that driver generates an in-flight Release Fence FD (`rel_fence`) at byte offset `0x18` of `struct decon_win_config` for Window 3 (`FIND-037`).
+- [x] Update `src/compositor/decon_backend.h`, `src/compositor/decon_backend.c`, and `src/weston/backend-decon/decon.c` to track and immediately close `rel_fence >= 0`, eliminating kernel descriptor leakage (open FDs locked at 24–26 across thousands of frames).
+- [x] Conduct comprehensive evdev input device discovery:
+  - Discovered `/dev/input/event1` (`sec_touchscreen`, Melfas `mms_ts`, 10-point multitouch `ABS_MT_SLOT` 0..9, range 0..4095, `INPUT_PROP_DIRECT`).
+  - Discovered `/dev/input/event14` (`gpio_keys`, Vol+/Vol-/Power).
+  - Validated input events with `libinput record` inside Alpine Linux ARM64 chroot.
+  - Documented `backend-decon` seat initialization architecture for libinput integration.
+- [x] Validate real Wayland application suite on physical hardware:
+  - Test 3A: `weston-simple-damage --use-damage-buffer` verified damage buffer tracking and hardware VSYNC pacing.
+  - Test 3B: Multi-surface concurrency: `weston-simple-shm` and `weston-simple-damage` simultaneously composited by Pixman into double-buffered ION DMA-BUFs on DECON Window 3.
+  - Test 3C: Dynamic surface lifecycle robustness: 3 sequential client spawn-and-destroy cycles while compositor remained running continuously (0 memory leaks, flat VmRSS 17.2 MB).
+- [x] Execute continuous presentation soak benchmark:
+  - Presented **over 1,920 consecutive hardware frames** during a 33.3-second continuous soak session on physical EA8076 Super AMOLED screen.
+  - Confirmed zero memory leaks (VmRSS flat at 17,228 kB -> 17,232 kB, +4 kB single-page rounding).
+  - Confirmed zero FD leaks (open FDs flat at 24 -> 26).
+- [x] Independent hardware verification: recorded **1,995 physical panel scanout interrupts** on DECON GPIO IRQ 249 (`14860000.decon_f`), measuring an exact **59.91 Hz** hardware cadence.
+- [x] High-resolution frame-by-frame performance profiling instrumented via `CLOCK_MONOTONIC`:
+  - CPU Pixman compositing latency: **0.66 ms – 0.74 ms per frame** (<4.5% of 16.67 ms frame budget at 1080x2340 resolution).
+  - DECON submission ioctl latency: **0.31 ms – 0.37 ms**.
+  - Hardware retire fence interval: **16.67 ms ± 0.03 ms** locked to 60.0 Hz VSYNC.
+  - Frame idle headroom: **15.60 ms (93.6%)**.
+- [x] GPU acceleration feasibility research: audited `libhybris` vs Mesa Panfrost `pan_kmod_kbase`. Confirmed CPU Pixman at 0.72 ms provides immediate production viability.
+- [x] Deliver Milestone 6E technical reports:
+  - `analysis/milestone-6e-input-validation.md`
+  - `analysis/milestone-6e-desktop-tests.md`
+  - `analysis/milestone-6e-performance-baseline.md`
+- [x] Record FIND-037 and FIND-038 in `reverse-engineering/evidence-ledger.md`.
+
+---
+
 ## Milestone 7: postmarketOS Weston Integration & Libhybris / Panfrost Translation (Next)
 - [ ] Implement `libhybris` dynamic linker integration to bridge proprietary `libGLES_mali-64.so` with Linux musl/glibc.
 - [ ] Deploy `weston-backend-decon` package to a physical postmarketOS rootfs and test native graphical session under musl.

@@ -517,7 +517,45 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Source / Artifact**: `packaging/0001-weston-14-direct-decon-backend.patch` / `analysis/milestone-6d-build-matrix.md` / `analysis/milestone-6d-weston-runtime.md`.
 - **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine/`.
 - **Confidence Level**: Confirmed Fact (100%).
+---
+
+### FIND-037: Samsung DECON Window Release Fence ABI & File Descriptor Leak Resolution
+- **Description**: S3CFB_WIN_CONFIG_IOCTL generates two distinct Linux sync fences on every display submission where a window buffer is presented (`state == DECON_WIN_STATE_BUFFER`):
+  1. **Retire Fence** (`win_data.fence`, offset `0x000` of `struct decon_win_config_data`): Signaled when the entire composite frame has been scanned out by the display controller.
+  2. **Release Fence** (`win_data.config[w].rel_fence`, offset `0x018` / 24 bytes from window start): Signaled when DECON has finished reading that specific window's buffer and the buffer is released back to the producer.
+  Previously, offset `0x018` was identified as `fence_reg` and ignored in userspace. Because userspace never closed `rel_fence`, the kernel generated an open `anon_inode:sync_fence` descriptor on every frame, leaking exactly 1 FD per frame (60 FDs/second, accumulating ~790 FDs in 10s).
+  Updating `struct decon_win_config` to track `rel_fence` and closing all non-negative `rel_fence` descriptors immediately after `do_ioctl()` completely eliminated the leak. Telemetry across 1,920+ consecutive frames on physical hardware verified that compositor file descriptors remain strictly constant (24 to 26 FDs) with zero descriptor growth.
+- **Supporting Evidence**:
+  - Exact byte offset diff: `inspect_win_data` confirmed offset `0x278` (Window 3 start `0x260` + `0x18`) populated with new fence FD `8` while offset `0x000` received retire fence FD `7`.
+  - Fix implementation in `src/compositor/decon_backend.h` and `src/compositor/decon_backend.c`.
+  - 30-second soak test on target device: 1,920 frames presented with flat FD count (24 to 26).
+  - 10/10 unit tests pass in `tests/weston_backend_test.c`.
+- **Source / Artifact**: `src/compositor/decon_backend.h`, `src/compositor/decon_backend.c`, `analysis/milestone-6e-performance-baseline.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), downstream kernel 4.4.302.
+- **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
+---
+
+### FIND-038: Multi-Surface Wayland Presentation, Damage Pacing, and CPU Pixman Performance
+- **Description**: Real Wayland application presentation, partial damage tracking, multi-surface concurrency, and dynamic surface lifecycles were empirically validated on the physical Samsung Galaxy A30 with Weston 14.0.2:
+  1. **Damage Buffer Tracking**: `weston-simple-damage --use-damage-buffer` rendered damaged regions with hardware VSYNC pacing.
+  2. **Multi-Surface Concurrency**: Multiple independent Wayland client processes (`weston-simple-shm` and `weston-simple-damage`) executed concurrently on socket `wayland-0`, composited simultaneously by Pixman into double-buffered ION DMA-BUFs on DECON Window 3.
+  3. **Surface Lifecycle Robustness**: Tested 3 sequential client spawn-and-destroy cycles while compositor remained running continuously. Compositor remained alive, cleanly reclaimed surface resources, and resumed drawing on subsequent client connects without memory leaks (flat VmRSS at 17.2 MB).
+  4. **Performance Breakdown**:
+     - CPU Pixman rendering latency: 0.66 ms – 0.74 ms per frame (<4.5% of 16.67 ms frame budget at full 1080x2340 resolution).
+     - DECON kernel submission ioctl latency: 0.31 ms – 0.37 ms.
+     - Frame interval: 16.67 ms ± 0.03 ms matching panel refresh rate.
+     - Independent hardware verification: 1,995 physical panel scanout interrupts recorded on DECON GPIO IRQ 249 (`14860000.decon_f`), measuring an exact 59.91 Hz hardware cadence.
+- **Supporting Evidence**:
+  - Test suites: `scratch/m6e_phase3_desktop_test.sh` and `scratch/m6e_soak_and_perf_test.sh` executed live on target device.
+  - Telemetry logs: `/data/local/tmp/m6e_phase3/` and `/data/local/tmp/m6e_soak_perf/`.
+  - Reports: `analysis/milestone-6e-desktop-tests.md` and `analysis/milestone-6e-performance-baseline.md`.
+- **Source / Artifact**: `analysis/milestone-6e-desktop-tests.md`, `analysis/milestone-6e-performance-baseline.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine/`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
 
 
 

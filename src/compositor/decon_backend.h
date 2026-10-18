@@ -69,8 +69,8 @@ struct decon_win_config {
     int32_t  state;             /* Offset 0x00 (0)  : DECON_WIN_STATE_BUFFER = 2, DISABLED = 0 */
     int32_t  reserved0;         /* Offset 0x04 (4)  : 0 */
     int32_t  fd_idma[3];        /* Offset 0x08 (8)  : [0]=DMA-BUF fd, [1]=-1, [2]=-1 */
-    int32_t  fence_fd;          /* Offset 0x14 (20) : -1 if pre-synced */
-    int32_t  fence_reg;         /* Offset 0x18 (24) : 0 */
+    int32_t  fence_fd;          /* Offset 0x14 (20) : Acquire fence (in-fence) fd, -1 if pre-synced */
+    int32_t  rel_fence;         /* Offset 0x18 (24) : [OUT] Release fence fd created by DECON driver */
     uint32_t plane_alpha;       /* Offset 0x1C (28) : 0-255 (255 = opaque) */
     uint32_t blending;          /* Offset 0x20 (32) : DECON_BLENDING_NONE = 0 */
     uint32_t idma_type;         /* Offset 0x24 (36) : 0 (Primary IDMA channel) */

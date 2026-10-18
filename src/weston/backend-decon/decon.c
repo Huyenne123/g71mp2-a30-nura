@@ -46,11 +46,15 @@ decon_backend_destroy(struct weston_backend *backend);
  * Presentation & Retire Fence Synchronization Loop
  * ------------------------------------------------------------------------- */
 
+static struct timespec g_t_last_fence = { 0, 0 };
+static double g_last_render_ms = 0.0;
+static double g_last_present_ms = 0.0;
+
 static int
 decon_fence_handler(int fd, uint32_t mask, void *data)
 {
 	struct decon_output *output = data;
-	struct timespec ts;
+	struct timespec ts, t_now;
 	uint32_t flags = WP_PRESENTATION_FEEDBACK_KIND_VSYNC;
 
 	(void)fd;
@@ -71,14 +75,22 @@ decon_fence_handler(int fd, uint32_t mask, void *data)
 		output->current_retire_fence = -1;
 	}
 
+	clock_gettime(CLOCK_MONOTONIC, &t_now);
+	double fence_interval_ms = 0.0;
+	if (g_t_last_fence.tv_sec > 0) {
+		fence_interval_ms = (t_now.tv_sec - g_t_last_fence.tv_sec) * 1000.0 +
+				    (t_now.tv_nsec - g_t_last_fence.tv_nsec) / 1000000.0;
+	}
+	g_t_last_fence = t_now;
+
 	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
 	weston_output_finish_frame(&output->base, &ts, flags);
 
 	static uint32_t fence_count = 0;
 	fence_count++;
 	if (fence_count <= 5 || fence_count % 60 == 0) {
-		weston_log("[+] decon: Retire fence #%u signaled (vsync completion, flags 0x%x)\n",
-			   fence_count, flags);
+		weston_log("[+] decon: Retire fence #%u signaled (interval: %.2f ms, render: %.2f ms, present: %.2f ms, flags 0x%x)\n",
+			   fence_count, fence_interval_ms, g_last_render_ms, g_last_present_ms, flags);
 	}
 
 	/* Toggle ping-pong active buffer index */
@@ -130,10 +142,14 @@ decon_output_repaint(struct weston_output *base)
 	pixman_region32_init(&damage);
 	weston_output_flush_damage_for_primary_plane(base, &damage);
 
+	struct timespec t0, t1, t2;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+
 	/* Repaint into active swapchain renderbuffer */
 	ec->renderer->repaint_output(base, &damage,
 				     output->renderbuffers[output->active_idx]);
 	pixman_region32_fini(&damage);
+	clock_gettime(CLOCK_MONOTONIC, &t1);
 
 	/* Guard against any stale in-flight retire fence before new submission */
 	if (output->fence_source) {
@@ -155,11 +171,15 @@ decon_output_repaint(struct weston_output *base)
 			return -1;
 		}
 
+		clock_gettime(CLOCK_MONOTONIC, &t2);
+		g_last_render_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+		g_last_present_ms = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_nsec - t1.tv_nsec) / 1000000.0;
+
 		static uint32_t repaint_count = 0;
 		repaint_count++;
 		if (repaint_count <= 5 || repaint_count % 60 == 0) {
-			weston_log("[+] decon: Hardware repaint #%u presented on buffer %u (fence fd %d)\n",
-				   repaint_count, output->active_idx, retire_fence);
+			weston_log("[+] decon: Hardware repaint #%u presented on buffer %u (fence fd %d, render: %.2f ms, present: %.2f ms)\n",
+				   repaint_count, output->active_idx, retire_fence, g_last_render_ms, g_last_present_ms);
 		}
 	}
 
