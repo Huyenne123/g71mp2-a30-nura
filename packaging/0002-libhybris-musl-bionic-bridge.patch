@@ -1,0 +1,864 @@
+diff --git a/hybris/common/Makefile.am b/hybris/common/Makefile.am
+index 9bfc1db..58f6140 100644
+--- a/hybris/common/Makefile.am
++++ b/hybris/common/Makefile.am
+@@ -3,26 +3,26 @@ lib_LTLIBRARIES = \
+ 
+ SUBDIRS =
+ 
++if HAS_ANDROID_10_0_0
++SUBDIRS += q
++else
++if HAS_ANDROID_8_0_0
++SUBDIRS += o
++else
++if HAS_ANDROID_7_0_0
++SUBDIRS += n
++else
++if HAS_ANDROID_6_0_0
++SUBDIRS += mm
++else
+ if !WANT_ARCH_ARM64
+ if !WANT_ARCH_X86_64
+ SUBDIRS += jb
+ endif
+ endif
+-
+-if HAS_ANDROID_6_0_0
+-SUBDIRS += mm
+ endif
+-
+-if HAS_ANDROID_7_0_0
+-SUBDIRS += n
+ endif
+-
+-if HAS_ANDROID_8_0_0
+-SUBDIRS += o
+ endif
+-
+-if HAS_ANDROID_10_0_0
+-SUBDIRS += q
+ endif
+ 
+ libhybris_common_la_SOURCES = \
+@@ -51,6 +51,8 @@ libhybris_common_la_SOURCES += \
+ endif
+ 
+ libhybris_common_la_CPPFLAGS = \
++	-D_LARGEFILE64_SOURCE \
++	-D_GNU_SOURCE \
+ 	-I$(top_srcdir)/include \
+ 	$(ANDROID_HEADERS_CFLAGS) \
+ 	-I$(top_srcdir)/common \
+diff --git a/hybris/common/hooks.c b/hybris/common/hooks.c
+index 67bbf31..8f56408 100644
+--- a/hybris/common/hooks.c
++++ b/hybris/common/hooks.c
+@@ -25,7 +25,21 @@
+ 
+ #include <stdio.h>
+ #include <stdarg.h>
++#ifdef __GLIBC__
+ #include <stdio_ext.h>
++#else
++/* musl libc stdio extensions stubs */
++static inline size_t __fbufsize(FILE *fp) { (void)fp; return 0; }
++static inline size_t __fpending(FILE *fp) { (void)fp; return 0; }
++static inline int __flbf(FILE *fp) { (void)fp; return 0; }
++static inline int __freadable(FILE *fp) { (void)fp; return 1; }
++static inline int __fwritable(FILE *fp) { (void)fp; return 1; }
++static inline int __freading(FILE *fp) { (void)fp; return 0; }
++static inline int __fwriting(FILE *fp) { (void)fp; return 0; }
++static inline int __fsetlocking(FILE *fp, int type) { (void)fp; (void)type; return 0; }
++static inline void _flushlbf(void) { }
++static inline void __fpurge(FILE *fp) { (void)fp; }
++#endif
+ #include <stddef.h>
+ #include <stdlib.h>
+ #include <limits.h>
+@@ -43,6 +57,8 @@
+ #include <sys/types.h>
+ #include <stdarg.h>
+ #include <wchar.h>
++#include <wctype.h>
++#include <unwind.h>
+ #include <sched.h>
+ #include <pwd.h>
+ #include <signal.h>
+@@ -71,6 +87,126 @@
+ #include <libgen.h>
+ #include <mntent.h>
+ 
++#ifndef __THROW
++#define __THROW
++#endif
++
++#ifndef __GLIBC__
++#ifndef off64_t
++typedef off_t off64_t;
++#endif
++#ifndef fpos64_t
++typedef fpos_t fpos64_t;
++#endif
++
++#define fopen64 fopen
++#define freopen64 freopen
++#define fseeko64 fseeko
++#define ftello64 ftello
++#define fgetpos64 fgetpos
++#define fsetpos64 fsetpos
++#define mmap64 mmap
++#define pread64 pread
++#define pwrite64 pwrite
++#define lseek64 lseek
++#define fstat64 fstat
++#define stat64 stat
++#define ftruncate64 ftruncate
++
++static inline void *pvalloc(size_t size) {
++    long pagesize = sysconf(_SC_PAGESIZE);
++    size_t rounded = (size + pagesize - 1) & ~(pagesize - 1);
++    if (rounded < size) return NULL;
++    void *ptr = NULL;
++    if (posix_memalign(&ptr, pagesize, rounded) != 0) return NULL;
++    return ptr;
++}
++
++static inline wchar_t *wmempcpy(wchar_t *dest, const wchar_t *src, size_t n) {
++    return wmemcpy(dest, src, n) + n;
++}
++
++static inline int _pthread_cond_clockwait_compat(pthread_cond_t *cond, pthread_mutex_t *mutex, clockid_t clock_id, const struct timespec *abstime) {
++    if (clock_id == CLOCK_REALTIME) {
++        return pthread_cond_timedwait(cond, mutex, abstime);
++    }
++    struct timespec now, rel, ts_real;
++    clock_gettime(clock_id, &now);
++    if (abstime->tv_sec < now.tv_sec || (abstime->tv_sec == now.tv_sec && abstime->tv_nsec <= now.tv_nsec))
++        return ETIMEDOUT;
++    rel.tv_sec = abstime->tv_sec - now.tv_sec;
++    rel.tv_nsec = abstime->tv_nsec - now.tv_nsec;
++    if (rel.tv_nsec < 0) { rel.tv_sec--; rel.tv_nsec += 1000000000L; }
++    clock_gettime(CLOCK_REALTIME, &ts_real);
++    ts_real.tv_sec += rel.tv_sec;
++    ts_real.tv_nsec += rel.tv_nsec;
++    if (ts_real.tv_nsec >= 1000000000L) { ts_real.tv_sec++; ts_real.tv_nsec -= 1000000000L; }
++    return pthread_cond_timedwait(cond, mutex, &ts_real);
++}
++#define pthread_cond_clockwait _pthread_cond_clockwait_compat
++
++static inline int _pthread_attr_setstackaddr_compat(pthread_attr_t *attr, void *stack_addr) {
++    size_t stack_size = 0x200000;
++    pthread_attr_getstacksize(attr, &stack_size);
++    return pthread_attr_setstack(attr, stack_addr, stack_size);
++}
++static inline int _pthread_attr_getstackaddr_compat(pthread_attr_t const *attr, void **stack_addr) {
++    size_t stack_size;
++    return pthread_attr_getstack((pthread_attr_t *)attr, stack_addr, &stack_size);
++}
++#define pthread_attr_setstackaddr _pthread_attr_setstackaddr_compat
++#define pthread_attr_getstackaddr _pthread_attr_getstackaddr_compat
++
++static inline int _scandirat_compat(int dirfd, const char *dir, struct dirent ***namelist,
++                                    int (*filter)(const struct dirent *),
++                                    int (*compare)(const struct dirent **, const struct dirent **))
++{
++    int dfd = openat(dirfd, dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++    if (dfd < 0) return -1;
++    DIR *d = fdopendir(dfd);
++    if (!d) {
++        close(dfd);
++        return -1;
++    }
++    struct dirent **names = NULL;
++    size_t count = 0, capacity = 0;
++    struct dirent *de;
++    while ((de = readdir(d)) != NULL) {
++        if (filter && !filter(de)) continue;
++        if (count >= capacity) {
++            size_t new_cap = capacity ? capacity * 2 : 16;
++            struct dirent **new_names = (struct dirent **)realloc(names, new_cap * sizeof(struct dirent *));
++            if (!new_names) {
++                while (count > 0) free(names[--count]);
++                free(names);
++                closedir(d);
++                return -1;
++            }
++            names = new_names;
++            capacity = new_cap;
++        }
++        size_t dsize = sizeof(struct dirent) + strlen(de->d_name) + 1;
++        struct dirent *copy = (struct dirent *)malloc(dsize);
++        if (!copy) {
++            while (count > 0) free(names[--count]);
++            free(names);
++            closedir(d);
++            return -1;
++        }
++        memcpy(copy, de, sizeof(struct dirent));
++        names[count++] = copy;
++    }
++    closedir(d);
++    if (compare && count > 1) {
++        qsort(names, count, sizeof(struct dirent *), (int (*)(const void *, const void *))compare);
++    }
++    *namelist = names;
++    return count;
++}
++#define scandirat _scandirat_compat
++
++#endif
++
+ #include <hybris/properties/properties.h>
+ 
+ // using private implementations
+@@ -452,9 +588,6 @@ static void* _hybris_hook_pthread_getspecific(pthread_key_t key)
+ {
+     TRACE_HOOK("key %d", key);
+ 
+-    // see android_bionic/tests/pthread_test.cpp, test static_pthread_key_used_before_creation
+-    if(!key) return NULL;
+-
+     return pthread_getspecific(key);
+ }
+ 
+@@ -923,7 +1056,9 @@ static int _hybris_hook_pthread_cond_destroy(pthread_cond_t *cond)
+          * when it is destroyed and bionic code does not always follow this
+          * requirement. To prevent deadlocks reset the reference count of the
+          * condition variable. */
++#ifdef __GLIBC__
+         realcond->__data.__wrefs = 0;
++#endif
+         ret = pthread_cond_destroy(realcond);
+         free(realcond);
+     }
+@@ -1213,20 +1348,35 @@ static int _hybris_hook_pthread_rwlockattr_getpshared(pthread_rwlockattr_t *__at
+ 
+ int _hybris_hook_pthread_rwlockattr_setkind_np(pthread_rwlockattr_t *attr, int pref)
+ {
++#ifdef __GLIBC__
+     pthread_rwlockattr_t *realattr = (pthread_rwlockattr_t *) *(uintptr_t *) attr;
+ 
+     TRACE_HOOK("attr %p pref %i", attr, pref);
+ 
+     return pthread_rwlockattr_setkind_np(realattr, pref);
++#else
++    TRACE_HOOK("attr %p pref %i (musl fallback)", attr, pref);
++    (void)attr;
++    (void)pref;
++    return 0;
++#endif
+ }
+ 
+ int _hybris_hook_pthread_rwlockattr_getkind_np(const pthread_rwlockattr_t *attr, int *pref)
+ {
++#ifdef __GLIBC__
+     pthread_rwlockattr_t *realattr = (pthread_rwlockattr_t *) *(uintptr_t *) attr;
+ 
+     TRACE_HOOK("attr %p pref %p", attr, pref);
+ 
+     return pthread_rwlockattr_getkind_np(realattr, pref);
++#else
++    TRACE_HOOK("attr %p pref %p (musl fallback)", attr, pref);
++    (void)attr;
++    if (pref)
++        *pref = 0;
++    return 0;
++#endif
+ }
+ 
+ /*
+@@ -1521,6 +1671,9 @@ struct bionic_file {
+  *   Currently, only fputs is managed.
+  */
+ static char _hybris_hook_sF[3 * sizeof(struct bionic_file)] = {0};
++static FILE *_hybris_bionic_stdin = (FILE*)&_hybris_hook_sF[0];
++static FILE *_hybris_bionic_stdout = (FILE*)&_hybris_hook_sF[sizeof(struct bionic_file)];
++static FILE *_hybris_bionic_stderr = (FILE*)&_hybris_hook_sF[sizeof(struct bionic_file) * 2];
+ static FILE *_get_actual_fp(FILE *fp)
+ {
+     char *c_fp = (char*)fp;
+@@ -1587,7 +1740,11 @@ static int _hybris_hook_fgetpos(FILE *fp, bionic_fpos_t *pos)
+     fpos_t my_fpos;
+     int ret = fgetpos(_get_actual_fp(fp), &my_fpos);
+ 
++#ifdef __GLIBC__
+     *pos = my_fpos.__pos;
++#else
++    *pos = (bionic_fpos_t)my_fpos.__lldata;
++#endif
+ 
+     return ret;
+ }
+@@ -1596,10 +1753,17 @@ static int _hybris_hook_fgetpos64(FILE *fp, bionic_fpos64_t *pos)
+ {
+     TRACE_HOOK("fp %p pos %p", fp, pos);
+ 
++#ifdef __GLIBC__
+     fpos64_t my_fpos;
+     int ret = fgetpos64(_get_actual_fp(fp), &my_fpos);
+ 
+     *pos = my_fpos.__pos;
++#else
++    fpos_t my_fpos;
++    int ret = fgetpos(_get_actual_fp(fp), &my_fpos);
++
++    *pos = (bionic_fpos64_t)my_fpos.__lldata;
++#endif
+ 
+     return ret;
+ }
+@@ -1699,22 +1863,34 @@ static int _hybris_hook_fsetpos(FILE *fp, const bionic_fpos_t *pos)
+ {
+     TRACE_HOOK("fp %p pos %p", fp, pos);
+ 
++#ifdef __GLIBC__
+     fpos_t my_fpos;
+     my_fpos.__pos = *pos;
+     memset(&my_fpos.__state, 0, sizeof(mbstate_t));
+ 
+     return fsetpos(_get_actual_fp(fp), &my_fpos);
++#else
++    fpos_t my_fpos = { .__lldata = (long long)*pos };
++
++    return fsetpos(_get_actual_fp(fp), &my_fpos);
++#endif
+ }
+ 
+ static int _hybris_hook_fsetpos64(FILE *fp, const bionic_fpos64_t *pos)
+ {
+     TRACE_HOOK("fp %p pos %p", fp, pos);
+ 
++#ifdef __GLIBC__
+     fpos64_t my_fpos;
+     my_fpos.__pos = *pos;
+     memset(&my_fpos.__state, 0, sizeof(mbstate_t));
+ 
+     return fsetpos64(_get_actual_fp(fp), &my_fpos);
++#else
++    fpos_t my_fpos = { .__lldata = (long long)*pos };
++
++    return fsetpos(_get_actual_fp(fp), &my_fpos);
++#endif
+ }
+ 
+ static long _hybris_hook_ftell(FILE *fp)
+@@ -2400,9 +2576,17 @@ int _hybris_hook_open(const char *pathname, int flags, ...)
+     return open(target_path, flags, mode);
+ }
+ 
+-/**
+- * Wrap some GCC builtin functions, which don't have any address
+- */
++#ifndef __GLIBC__
++static inline int __vsprintf_chk(char *s, int flag, size_t slen, const char *format, va_list ap) {
++    (void)flag; (void)slen;
++    return vsprintf(s, format, ap);
++}
++static inline int __vsnprintf_chk(char *s, size_t maxlen, int flag, size_t slen, const char *format, va_list ap) {
++    (void)flag; (void)slen;
++    return vsnprintf(s, maxlen, format, ap);
++}
++#endif
++
+ __THROW int _hybris_hook___sprintf_chk (char *__restrict __s, int __flag, size_t __slen,
+ 			  const char *__restrict __format, ...)
+ {
+@@ -2426,6 +2610,41 @@ __THROW int _hybris_hook___snprintf_chk (char *__restrict __s, size_t __n, int _
+     return ret;
+ }
+ 
++static inline size_t _hybris_hook___ctype_get_mb_cur_max(void) {
++    return MB_CUR_MAX;
++}
++static inline size_t _hybris_hook___strlen_chk(const char *s, size_t maxlen) {
++    (void)maxlen;
++    return strlen(s);
++}
++static inline void *_hybris_hook___memset_chk(void *dest, int c, size_t len, size_t destlen) {
++    (void)destlen;
++    return memset(dest, c, len);
++}
++static inline ssize_t _hybris_hook___read_chk(int fd, void *buf, size_t count, size_t buflen) {
++    (void)buflen;
++    return read(fd, buf, count);
++}
++static inline size_t _hybris_hook___fwrite_chk(const void *buf, size_t size, size_t count, FILE *fp, size_t buflen) {
++    (void)buflen;
++    return fwrite(buf, size, count, _get_actual_fp(fp));
++}
++static inline int _hybris_hook___open_2(const char *path, int flags) {
++    return open(path, flags);
++}
++static inline void _hybris_hook_android_set_abort_message(const char *msg) {
++    (void)msg;
++}
++extern void __stack_chk_fail(void);
++static inline long long _hybris_hook_strtoll_l(const char *nptr, char **endptr, int base, locale_t loc) {
++    (void)loc;
++    return strtoll(nptr, endptr, base);
++}
++static inline unsigned long long _hybris_hook_strtoull_l(const char *nptr, char **endptr, int base, locale_t loc) {
++    (void)loc;
++    return strtoull(nptr, endptr, base);
++}
++
+ static __thread void *tls_hooks[16];
+ 
+ static void *_hybris_hook___get_tls_hooks()
+@@ -2544,7 +2763,14 @@ static char* _hybris_hook__gnu_strerror_r(int errnum, char *buf, size_t buf_len)
+ {
+     TRACE_HOOK("errnum %d buf '%s' buf len %zu", errnum, buf, buf_len);
+ 
++#ifdef __GLIBC__
+     return strerror_r(errnum, buf, buf_len);
++#else
++    if (strerror_r(errnum, buf, buf_len) == 0)
++        return buf;
++    snprintf(buf, buf_len, "Unknown error %d", errnum);
++    return buf;
++#endif
+ }
+ 
+ static int _hybris_hook_mprotect(void *addr, size_t len, int prot)
+@@ -2818,7 +3044,7 @@ static void* _hybris_hook_dladdr(void *addr, Dl_info *info)
+ {
+     TRACE("addr %p info %p", addr, info);
+ 
+-    return (void *)_android_dladdr(addr, info);
++    return (void *)(intptr_t)_android_dladdr(addr, info);
+ }
+ 
+ static int _hybris_hook_dlclose(void *handle)
+@@ -3276,7 +3502,103 @@ static struct _hook hooks_common[] = {
+     HOOK_INDIRECT(__fsetlocking),
+     HOOK_INDIRECT(_flushlbf),
+     HOOK_INDIRECT(__fpurge),
++
++    /* bionic modern stdio symbols */
++    HOOK_TO(stdin, &_hybris_bionic_stdin),
++    HOOK_TO(stdout, &_hybris_bionic_stdout),
++    HOOK_TO(stderr, &_hybris_bionic_stderr),
++
++    /* C++ ABI & Bionic support */
++    HOOK_TO(__cxa_thread_atexit_impl, _hybris_hook___cxa_thread_atexit),
++    HOOK_TO(__ctype_get_mb_cur_max, _hybris_hook___ctype_get_mb_cur_max),
++    HOOK_TO(__strlen_chk, _hybris_hook___strlen_chk),
++    HOOK_TO(__memset_chk, _hybris_hook___memset_chk),
++    HOOK_TO(__read_chk, _hybris_hook___read_chk),
++    HOOK_TO(__fwrite_chk, _hybris_hook___fwrite_chk),
++    HOOK_TO(__open_2, _hybris_hook___open_2),
++    HOOK_TO(android_set_abort_message, _hybris_hook_android_set_abort_message),
++    HOOK_DIRECT_NO_DEBUG(__stack_chk_fail),
++
++    /* libgcc_s unwind symbols */
++    HOOK_DIRECT_NO_DEBUG(_Unwind_DeleteException),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_GetIP),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_GetLanguageSpecificData),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_GetRegionStart),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_RaiseException),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_Resume),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_SetGR),
++    HOOK_DIRECT_NO_DEBUG(_Unwind_SetIP),
++
++    /* POSIX time & scheduling */
++    HOOK_DIRECT_NO_DEBUG(clock_gettime),
++    HOOK_DIRECT_NO_DEBUG(nanosleep),
++    HOOK_DIRECT_NO_DEBUG(sched_yield),
++
++    /* wide char & ctype */
++    HOOK_DIRECT_NO_DEBUG(btowc),
++    HOOK_DIRECT_NO_DEBUG(wctob),
++    HOOK_DIRECT_NO_DEBUG(iswalpha),
++    HOOK_DIRECT_NO_DEBUG(iswblank),
++    HOOK_DIRECT_NO_DEBUG(iswcntrl),
++    HOOK_DIRECT_NO_DEBUG(iswdigit),
++    HOOK_DIRECT_NO_DEBUG(iswlower),
++    HOOK_DIRECT_NO_DEBUG(iswprint),
++    HOOK_DIRECT_NO_DEBUG(iswpunct),
++    HOOK_DIRECT_NO_DEBUG(iswspace),
++    HOOK_DIRECT_NO_DEBUG(iswupper),
++    HOOK_DIRECT_NO_DEBUG(iswxdigit),
++    HOOK_DIRECT_NO_DEBUG(towlower),
++    HOOK_DIRECT_NO_DEBUG(towupper),
++    HOOK_DIRECT_NO_DEBUG(mbrlen),
++    HOOK_DIRECT_NO_DEBUG(mbrtowc),
++    HOOK_DIRECT_NO_DEBUG(mbsnrtowcs),
++    HOOK_DIRECT_NO_DEBUG(mbsrtowcs),
++    HOOK_DIRECT_NO_DEBUG(mbtowc),
++    HOOK_DIRECT_NO_DEBUG(wcrtomb),
++    HOOK_DIRECT_NO_DEBUG(wcscoll),
++    HOOK_DIRECT_NO_DEBUG(wcslen),
++    HOOK_DIRECT_NO_DEBUG(wcsnrtombs),
++    HOOK_DIRECT_NO_DEBUG(wcstod),
++    HOOK_DIRECT_NO_DEBUG(wcstof),
++    HOOK_DIRECT_NO_DEBUG(wcstol),
++    HOOK_DIRECT_NO_DEBUG(wcstold),
++    HOOK_DIRECT_NO_DEBUG(wcstoll),
++    HOOK_DIRECT_NO_DEBUG(wcstoul),
++    HOOK_DIRECT_NO_DEBUG(wcstoull),
++    HOOK_DIRECT_NO_DEBUG(wcsxfrm),
++
++    /* string conversion with locale */
++    HOOK_DIRECT_NO_DEBUG(strtof),
++    HOOK_DIRECT_NO_DEBUG(strtod_l),
++    HOOK_DIRECT_NO_DEBUG(strtof_l),
++    HOOK_DIRECT_NO_DEBUG(strtold),
++    HOOK_DIRECT_NO_DEBUG(strtold_l),
++    HOOK_DIRECT_NO_DEBUG(strtoll),
++    HOOK_TO(strtoll_l, _hybris_hook_strtoll_l),
++    HOOK_DIRECT_NO_DEBUG(strtoul),
++    HOOK_DIRECT_NO_DEBUG(strtoull),
++    HOOK_TO(strtoull_l, _hybris_hook_strtoull_l),
++};
++
++#ifndef __GLIBC__
++struct mallinfo {
++    int arena;
++    int ordblks;
++    int smblks;
++    int hblks;
++    int hblkhd;
++    int usmblks;
++    int fsmblks;
++    int uordblks;
++    int fordblks;
++    int keepcost;
+ };
++static struct mallinfo _hybris_stub_mallinfo(void) {
++    struct mallinfo mi;
++    memset(&mi, 0, sizeof(mi));
++    return mi;
++}
++#endif
+ 
+ static struct _hook hooks_mm[] = {
+     HOOK_DIRECT(strtol),
+@@ -3286,7 +3608,11 @@ static struct _hook hooks_mm[] = {
+     HOOK_DIRECT(putenv),
+     HOOK_DIRECT(clearenv),
+     HOOK_DIRECT_NO_DEBUG(dprintf),
++#ifdef __GLIBC__
+     HOOK_DIRECT_NO_DEBUG(mallinfo),
++#else
++    HOOK_TO(mallinfo, _hybris_stub_mallinfo),
++#endif
+     HOOK_DIRECT(malloc_usable_size),
+     HOOK_DIRECT(posix_memalign),
+     HOOK_DIRECT(mprotect),
+@@ -3640,7 +3966,7 @@ static void __hybris_linker_init()
+      * an overview over available SDK version numbers and which
+      * Android version they relate to. */
+ #if defined(WANT_LINKER_Q)
+-    if (sdk_version <= 29)
++    if (sdk_version <= 30)
+         name = LINKER_NAME_Q;
+ #endif
+ #if defined(WANT_LINKER_O)
+diff --git a/hybris/common/hooks_shm.c b/hybris/common/hooks_shm.c
+index c90cee5..c4d878c 100644
+--- a/hybris/common/hooks_shm.c
++++ b/hybris/common/hooks_shm.c
+@@ -33,6 +33,15 @@
+ #include <sys/shm.h>
+ #include <sys/mman.h>
+ 
++#ifndef TEMP_FAILURE_RETRY
++#define TEMP_FAILURE_RETRY(exp) ({ \
++    __typeof__(exp) _rc; \
++    do { \
++        _rc = (exp); \
++    } while (_rc == -1 && errno == EINTR); \
++    _rc; })
++#endif
++
+ /* Debug */
+ #include "logging.h"
+ #define LOGD(message, ...) HYBRIS_DEBUG_LOG(HOOKS, message, ##__VA_ARGS__)
+diff --git a/hybris/common/legacy_properties/properties.c b/hybris/common/legacy_properties/properties.c
+index 0191e7c..b26c898 100644
+--- a/hybris/common/legacy_properties/properties.c
++++ b/hybris/common/legacy_properties/properties.c
+@@ -33,6 +33,15 @@
+ #include <sys/select.h>
+ #include <sys/types.h>
+ #include <netinet/in.h>
++
++#ifndef TEMP_FAILURE_RETRY
++#define TEMP_FAILURE_RETRY(exp) ({ \
++    __typeof__(exp) _rc; \
++    do { \
++        _rc = (exp); \
++    } while (_rc == -1 && errno == EINTR); \
++    _rc; })
++#endif
+ #include <poll.h>
+ 
+ #include <hybris/properties/properties.h>
+diff --git a/hybris/common/q/Makefile.am b/hybris/common/q/Makefile.am
+index 8b23d0f..a1eb1d2 100644
+--- a/hybris/common/q/Makefile.am
++++ b/hybris/common/q/Makefile.am
+@@ -10,6 +10,8 @@ AM_CFLAGS = \
+ 	-std=gnu99
+ 
+ AM_CPPFLAGS = \
++	-D_LARGEFILE64_SOURCE \
++	-D_GNU_SOURCE \
+ 	-fno-stack-protector \
+ 	-Wstrict-overflow=5
+ 
+diff --git a/hybris/common/q/bionic/libc/include/android/dlext.h b/hybris/common/q/bionic/libc/include/android/dlext.h
+index a7fd114..ea732b4 100644
+--- a/hybris/common/q/bionic/libc/include/android/dlext.h
++++ b/hybris/common/q/bionic/libc/include/android/dlext.h
+@@ -22,6 +22,9 @@
+ #include <stdint.h>
+ #include <sys/cdefs.h>
+ #include <sys/types.h>  /* for off64_t */
++#ifndef off64_t
++typedef off_t off64_t;
++#endif
+ #include <android/versioning.h>
+ 
+ /**
+diff --git a/hybris/common/q/bionic/libc/private/ScopedSignalBlocker.h b/hybris/common/q/bionic/libc/private/ScopedSignalBlocker.h
+index 7300aba..bcfd931 100644
+--- a/hybris/common/q/bionic/libc/private/ScopedSignalBlocker.h
++++ b/hybris/common/q/bionic/libc/private/ScopedSignalBlocker.h
+@@ -22,6 +22,10 @@
+ #include <sys/cdefs.h>
+ #include <sys/types.h>
+ 
++#ifndef __sighandler_t
++typedef void (*__sighandler_t)(int);
++#endif
++
+ #include "bionic_macros.h"
+ 
+ 
+diff --git a/hybris/common/q/hybris_compat.h b/hybris/common/q/hybris_compat.h
+index b8155b7..b94b753 100644
+--- a/hybris/common/q/hybris_compat.h
++++ b/hybris/common/q/hybris_compat.h
+@@ -32,6 +32,71 @@
+ 
+ #include <string.h>
+ #include <memory.h>
++#include <sys/types.h>
++#include <unistd.h>
++#include <errno.h>
++#include <libgen.h>
++
++#ifndef off64_t
++typedef off_t off64_t;
++#endif
++
++#ifndef mmap64
++#define mmap64 mmap
++#endif
++
++#ifndef pread64
++#define pread64 pread
++#endif
++
++#ifndef pwrite64
++#define pwrite64 pwrite
++#endif
++
++#ifndef lseek64
++#define lseek64 lseek
++#endif
++
++#ifndef fstat64
++#define fstat64 fstat
++#endif
++
++#ifndef stat64
++#define stat64 stat
++#endif
++
++#ifndef ftruncate64
++#define ftruncate64 ftruncate
++#endif
++
++#ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
++#ifdef __GLIBC__
++#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_MUTEX_INITIALIZER
++#else
++#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP {{{1}}}
++#endif
++#endif
++
++#ifndef TEMP_FAILURE_RETRY
++#define TEMP_FAILURE_RETRY(exp) ({ \
++    __typeof__(exp) _rc; \
++    do { \
++        _rc = (exp); \
++    } while (_rc == -1 && errno == EINTR); \
++    _rc; })
++#endif
++
++#ifdef __cplusplus
++#include <string>
++inline const char* basename(const char* path) {
++    const char* p = strrchr(path, '/');
++    return p ? p + 1 : path;
++}
++inline std::string basename(const std::string& path) {
++    size_t idx = path.rfind('/');
++    return (idx == std::string::npos) ? path : path.substr(idx + 1);
++}
++#endif
+ 
+ extern "C" size_t strlcpy(char *dest, const char *src, size_t size);
+ extern "C" size_t strlcat(char *dst, const char *src, size_t size);
+@@ -79,12 +144,18 @@ extern "C" size_t strlcat(char *dst, const char *src, size_t size);
+ #define DT_ANDROID_RELA (DT_LOOS + 4)
+ #define DT_ANDROID_RELASZ (DT_LOOS + 5)
+ 
+-/*
+- * From bionic/libc/include/bits/elf_arm64.h
+- */
+-#define R_AARCH64_TLS_DTPREL64          1028    /* Module-relative offset. */
+-#define R_AARCH64_TLS_DTPMOD64          1029    /* Module index. */
++#ifndef R_AARCH64_TLS_DTPREL64
++#define R_AARCH64_TLS_DTPREL64          1029    /* Module-relative offset. */
++#endif
++#ifndef R_AARCH64_TLS_DTPMOD64
++#define R_AARCH64_TLS_DTPMOD64          1028    /* Module index. */
++#endif
++#ifndef R_AARCH64_TLS_TPREL64
+ #define R_AARCH64_TLS_TPREL64           1030    /* TP-relative offset. */
++#endif
++#ifndef R_AARCH64_IRELATIVE
++#define R_AARCH64_IRELATIVE             1032
++#endif
+ 
+ /*
+  * From bionic/libc/include/bits/elf_arm64.h
+diff --git a/hybris/common/q/linker.h b/hybris/common/q/linker.h
+index 13fa9a4..31dc2e4 100644
+--- a/hybris/common/q/linker.h
++++ b/hybris/common/q/linker.h
+@@ -28,6 +28,7 @@
+ 
+ #pragma once
+ 
++#include "hybris_compat.h"
+ #include <dlfcn.h>
+ #include <android/dlext.h>
+ #include <elf.h>
+diff --git a/hybris/common/q/linker_mapped_file_fragment.h b/hybris/common/q/linker_mapped_file_fragment.h
+index 91e094f..722165b 100644
+--- a/hybris/common/q/linker_mapped_file_fragment.h
++++ b/hybris/common/q/linker_mapped_file_fragment.h
+@@ -28,6 +28,7 @@
+ 
+ #pragma once
+ 
++#include "hybris_compat.h"
+ #include <unistd.h>
+ 
+ #include <android-base/macros.h>
+diff --git a/hybris/common/q/linker_relocs.h b/hybris/common/q/linker_relocs.h
+index 68191f9..1d2ade5 100644
+--- a/hybris/common/q/linker_relocs.h
++++ b/hybris/common/q/linker_relocs.h
+@@ -29,6 +29,7 @@
+ #pragma once
+ 
+ #include <elf.h>
++#include "hybris_compat.h"
+ 
+ #define R_GENERIC_NONE 0 // R_*_NONE is always 0
+ 
+diff --git a/hybris/common/q/linker_soinfo.cpp b/hybris/common/q/linker_soinfo.cpp
+index f0a31ea..a915917 100644
+--- a/hybris/common/q/linker_soinfo.cpp
++++ b/hybris/common/q/linker_soinfo.cpp
+@@ -482,6 +482,8 @@ void soinfo::call_constructors() {
+     bionic_trace_begin((std::string("calling constructors: ") + get_realpath()).c_str());
+   }
+ 
++  fprintf(stderr, "HYBRIS: Calling constructors for %s (%s)\n", get_realpath(), soname_ ? soname_ : "no-soname");
++
+   // DT_INIT should be called before DT_INIT_ARRAY if both are present.
+   call_function("DT_INIT", init_func_, get_realpath());
+   call_array("DT_INIT_ARRAY", init_array_, init_array_count_, false, get_realpath());
+diff --git a/hybris/common/q/linker_utils.h b/hybris/common/q/linker_utils.h
+index 138eb94..73bc630 100644
+--- a/hybris/common/q/linker_utils.h
++++ b/hybris/common/q/linker_utils.h
+@@ -28,6 +28,7 @@
+ 
+ #pragma once
+ 
++#include "hybris_compat.h"
+ #include <string>
+ #include <vector>
+ 
+diff --git a/hybris/gralloc/gralloc.c b/hybris/gralloc/gralloc.c
+index 973b247..2260b99 100644
+--- a/hybris/gralloc/gralloc.c
++++ b/hybris/gralloc/gralloc.c
+@@ -122,7 +122,7 @@ void hybris_gralloc_initialize(int framebuffer)
+                 // success
+                 gralloc1_init();
+                 version = 1;
+-                atexit(hybris_gralloc_deinitialize);
++                // atexit(hybris_gralloc_deinitialize);
+             } else
+ #endif
+             if (framebuffer) {
+@@ -131,7 +131,7 @@ void hybris_gralloc_initialize(int framebuffer)
+                         // success
+                         gralloc0_module = (struct gralloc_module_t*)gralloc_hardware_module;
+                         version = 0;
+-                        atexit(hybris_gralloc_deinitialize);
++                        // atexit(hybris_gralloc_deinitialize);
+                     } else {
+                         fprintf(stderr, "failed to open the gralloc 0 module (framebuffer was requested therefore defaulted to version 0)\n");
+                         assert(NULL);
+@@ -145,7 +145,7 @@ void hybris_gralloc_initialize(int framebuffer)
+                 // success
+                 gralloc0_module = (struct gralloc_module_t*)gralloc_hardware_module;
+                 version = 0;
+-                atexit(hybris_gralloc_deinitialize);
++                // atexit(hybris_gralloc_deinitialize);
+             } else {
+                 // fail
+                 framebuffer_device = NULL;
+diff --git a/hybris/tests/test_audio.c b/hybris/tests/test_audio.c
+index a16f469..c5d562e 100644
+--- a/hybris/tests/test_audio.c
++++ b/hybris/tests/test_audio.c
+@@ -15,6 +15,8 @@
+  *
+  */
+ 
++#define _GNU_SOURCE 1
++#include <string.h>
+ #include <android-config.h>
+ #include <memory.h>
+ #include <assert.h>
+diff --git a/hybris/tests/test_camera.cpp b/hybris/tests/test_camera.cpp
+index 1a9c62e..6d66cf8 100644
+--- a/hybris/tests/test_camera.cpp
++++ b/hybris/tests/test_camera.cpp
+@@ -45,6 +45,15 @@
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ 
++#ifndef TEMP_FAILURE_RETRY
++#define TEMP_FAILURE_RETRY(exp) ({ \
++    __typeof__(exp) _rc; \
++    do { \
++        _rc = (exp); \
++    } while (_rc == -1 && errno == EINTR); \
++    _rc; })
++#endif
++
+ #include "test_common.h"
+ 
+ int shot_counter = 1;

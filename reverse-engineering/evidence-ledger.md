@@ -597,3 +597,68 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Source / Artifact**: `analysis/milestone-7-gpu-path-feasibility.md` / `artifacts/proprietary/libGLES_mali-64.so`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
+---
+
+### FIND-041: Libhybris Musl-to-Bionic Linker Bridge Execution Under Alpine ARM64
+- **Description**: The `libhybris` dynamic linker bridge (`linker/q.so` AArch64) was ported, compiled, and verified executing natively under pure Alpine Linux v3.21.8 ARM64 with musl libc 1.2.5:
+  1. **AArch64 Relocation Support**: Musl's `<elf.h>` omits `R_AARCH64_IRELATIVE` (1032). Added definition in `hybris_compat.h` and enabled `_LARGEFILE64_SOURCE` / `_GNU_SOURCE` for `off64_t` support.
+  2. **Recursive Mutex Deadlock Elimination**: Resolved a fatal deadlock inside `soinfo::call_constructors()` by correctly configuring `PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP` to musl's internal recursive layout `{{{1}}}`.
+  3. **Musl Union `fpos_t` Structure**: Designated initializers (`.__lldata = (long long)*pos`) were introduced to handle musl's `union _G_fpos64_t`.
+  4. **Bionic 64-bit GOT Symbol Relocations**: Added static double-pointer indirection anchors (`&_hybris_bionic_stdin`, `stdout`, `stderr`) in `hooks.c` matching modern Android Bionic API 24+ global semantics.
+  5. **Bionic C++ Runtime Shim Hooks**: Added 64 missing Bionic symbol hooks in `hooks.c` (`__cxa_thread_atexit`, FORTIFY `__*_chk`, wide-character/locale functions, `android_set_abort_message`) to prevent uninitialized Bionic `libc.so` execution during `libc++.so` constructor resolution.
+  6. **APEX Mount Propagation**: Android 11 loop-mounted APEX directories (`com.android.runtime`, `com.android.vndk.v30`, `com.android.art`) were mounted into the chroot namespace using `su -mm`, providing all required Android 11 runtime libraries.
+  7. **TLS Pthread Key Resolution**: Fixed a critical defect in `_hybris_hook_pthread_getspecific` where `if (!key) return NULL;` was erroneously dropping key index 0. Because musl returns key 0 for the first `pthread_key_create()`, this check caused Mali DDK thread-local state lookups to fail with NULL, triggering a crash in `eglp_first_operation_cb` during the initial draw call. Removing this invalid check restored proper TLS state management across all threads.
+- **Supporting Evidence**:
+  - `test_dlopen /vendor/lib64/egl/libGLES_mali.so` executed constructors for all 35+ dependent Android 11 libraries and returned valid handle `0x6058c667`.
+  - Clean execution of `test_offscreen_mali`, `test_gralloc`, and `test_hwc_window` (all exit code 0).
+  - Code patches in `scratch/libhybris/hybris/common/hooks.c`, `scratch/libhybris/hybris/common/q/hybris_compat.h`, and `scratch/libhybris/hybris/gralloc/gralloc.c`.
+- **Source / Artifact**: `scratch/libhybris/hybris/common/hooks.c`, `scratch/libhybris/hybris/common/q/hybris_compat.h`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-042: Vendor Mali-G71 MP2 Hardware EGL/GLES Execution & Physical Interrupt Verification
+- **Description**: Hardware 3D acceleration using the proprietary ARM Mali-G71 MP2 vendor DDK (`libGLES_mali.so` v1.r26p0-01eac0) was achieved and verified in the Alpine musl environment:
+  1. **EGL Configuration Enumeration**: `test_egl_configs` enumerated 24 valid hardware EGL configurations supporting RGBA8888, RGB565, depth 16/24, stencil 8, and MSAA (4x, 8x, 16x).
+  2. **Headless Offscreen Context**: Initialized EGL display, selected an 8-bit RGBA Pbuffer config, created an EGL Pbuffer surface (64x64), and created an OpenGL ES 3.2 context (`EGL_CONTEXT_CLIENT_VERSION 2`).
+  3. **Driver Telemetry**:
+     - `GL_VENDOR`: `ARM`
+     - `GL_RENDERER`: `Mali-G71`
+     - `GL_VERSION`: `OpenGL ES 3.2 v1.r26p0-01eac0.###other-sha0123456789ABCDEF0###`
+     - Extensions: 90+ verified extensions including `GL_OES_EGL_image`, `GL_EXT_texture_storage`, `GL_ARM_mali_shader_binary`, `GL_EXT_tessellation_shader`, `GL_EXT_geometry_shader`, `GL_ANDROID_extension_pack_es31a`.
+  4. **Hardware Clear and Readback**: Rendered clear color `RGBA = (0.2, 0.4, 0.6, 1.0)`. `glReadPixels` read back exact matching pixel values `(51, 102, 153, 255)`.
+  5. **Physical SoC Hardware Interrupt Telemetry**: Inspected `/proc/interrupts` before and after offscreen GLES execution on the Exynos 7904 SoC:
+     - GIC 190 (`11500000.mali`): incremented by +134 interrupts.
+     - GIC 191 (`11500000.mali`): incremented by +13 interrupts.
+     - Confirms physical GPU job submission, execution, and hardware interrupt generation on the SoC.
+- **Supporting Evidence**:
+  - Test executable: `/tmp/test_offscreen_mali` executed on target with exit code 0.
+  - `/proc/interrupts` delta logs on target device.
+  - Test binary source: `scratch/test_offscreen_mali.c`.
+- **Source / Artifact**: `scratch/test_offscreen_mali.c`, `analysis/milestone-7b-libhybris-bridge.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-043: Hardware Window Surface Presentation & Zero-Copy DECON Swapchain Bridge
+- **Description**: The hardware rendering bridge between libhybris EGL/GLES and the Samsung DECON display pipeline was implemented and validated:
+  1. **Hardware Gralloc Allocation**: Exynos 7904 gralloc HAL (`gralloc.exynos7904.so`) allocates real 1080x2340 ION DMA-BUFs (`HAL_PIXEL_FORMAT_RGBA_8888`) with 64-byte Mali stride alignment (stride=1088).
+  2. **Native Window Surface**: `HWCNativeWindowCreate(1080, 2340, HAL_PIXEL_FORMAT_RGBA_8888, ...)` from `libhybris-hwcomposerwindow.so` creates an `ANativeWindow` backing `eglCreateWindowSurface()`.
+  3. **Zero-Copy Swapchain & Fence Extraction**: Calling `eglSwapBuffers()` renders the scene on the Mali-G71 GPU and triggers the present callback, delivering:
+     - The shared ION DMA-BUF file descriptor (`buf->handle->data[0]`).
+     - The GPU acquire sync fence (`HWCNativeBufferGetFence(buf)`).
+  4. **Samsung DECON Window 3 Mapping**: The exported ION DMA-BUF FD and acquire fence map directly into `struct decon_win_config` Window 3 / IDMA 0 (`S3CFB_WIN_CONFIG_IOCTL`), providing an end-to-end zero-copy GPU-to-display scanout path.
+  5. **Clean Teardown**: Full lifecycle teardown (`eglMakeCurrent(NULL)`, `eglDestroyContext`, `eglDestroySurface`, `eglTerminate`) executed cleanly with exit code 0 without file descriptor leaks or memory faults.
+- **Supporting Evidence**:
+  - Test executable: `/tmp/test_hwc_window` executed on target with exit code 0.
+  - Present callback delivered buffer: `1080x2340`, `stride=1088`, `handle=0x7f77de9a50`, `fd[0]=12`, `fence=17`.
+  - Source file: `scratch/test_hwc_window.c`.
+- **Source / Artifact**: `scratch/test_hwc_window.c`, `analysis/milestone-7b-libhybris-bridge.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.

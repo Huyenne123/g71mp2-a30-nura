@@ -234,11 +234,33 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 7B: Libhybris Bridge Implementation for Vendor Mali DDK (Next)
-- [ ] Implement and compile `libhybris` dynamic linker (`hybris-linker`) on Alpine ARM64 musl.
-- [ ] Bridge Bionic C++ runtime (`libc++.so`) and `LIBC_N/P/R` versioning for `libGLES_mali-64.so`.
-- [ ] Validate headless offscreen EGL/GLES context creation under pure musl userspace.
-- [ ] Connect `libhybris` EGL platform to Weston Direct-DECON backend for hardware-accelerated GL composition.
+## Milestone 7B: Libhybris Bridge Implementation for Vendor Mali DDK (Completed)
+- [x] Port and compile `libhybris` dynamic linker (`linker/q.so`) on Alpine ARM64 musl 1.2.5 (`FIND-041`).
+- [x] Resolve musl ABI gaps: `R_AARCH64_IRELATIVE` relocation, largefile 64-bit offsets, recursive mutex layout `{{{1}}}`, `fpos_t` designated initializers, and modern 64-bit Bionic GOT relocations.
+- [x] Hook 64 missing Bionic runtime symbols in `hooks.c` (`__cxa_thread_atexit`, FORTIFY bounds checking, ctype/locales, abort handling) to prevent execution of uninitialized Bionic `libc.so`.
+- [x] Fix critical TLS pthread key drop bug (`if (!key) return NULL;`) in `_hybris_hook_pthread_getspecific()`, restoring key index 0 lookups for Mali DDK thread state.
+- [x] Execute `test_dlopen /vendor/lib64/egl/libGLES_mali.so` across all 35+ dependent Android 11 system libraries (returned handle `0x6058c667`).
+- [x] Enumerate 24 hardware EGL configurations exposing RGBA8888, RGB565, depth, stencil, and MSAA via `test_egl_configs`.
+- [x] Validate headless offscreen EGL/GLES context creation under pure musl userspace via `tests/test_offscreen_mali.c`:
+  - Verified `GL_VENDOR: ARM`, `GL_RENDERER: Mali-G71`, `GL_VERSION: OpenGL ES 3.2 v1.r26p0-01eac0`.
+  - Executed hardware color clear; verified pixel readback (`glReadPixels`) with 0 LSB delta (`FIND-042`).
+  - Recorded physical SoC hardware interrupts on GIC 190 (+134) and GIC 191 (+13) (`11500000.mali`).
+- [x] Validate Exynos 7904 hardware Gralloc buffer allocation via `tests/test_gralloc.c`:
+  - Allocated real 1080x2340 `HAL_PIXEL_FORMAT_RGBA_8888` ION DMA-BUF with stride 1088 (numFds=2).
+  - Verified user-space buffer lock, memory pattern write, unlock, and release.
+- [x] Bridge `libhybris-hwcomposerwindow.so` to presentation pipeline via `tests/test_hwc_window.c` (`FIND-043`):
+  - Created `ANativeWindow` backed by `HWCNativeWindowCreate`.
+  - Created `EGLSurface` with `eglCreateWindowSurface()`.
+  - Rendered frame with Mali-G71 GPU and executed `eglSwapBuffers()`.
+  - Present callback successfully delivered shared ION DMA-BUF FD (`fd[0]=12`) and physical GPU acquire fence FD (`fence=17`).
+- [x] Deliver Milestone 7B technical report `analysis/milestone-7b-libhybris-bridge.md` and export patch `packaging/0002-libhybris-musl-bionic-bridge.patch`.
+- [x] Record FIND-041, FIND-042, and FIND-043 in `reverse-engineering/evidence-ledger.md`.
+
+---
+
+## Milestone 7C: Hardware-Accelerated Wayland Compositor Integration (Next)
+- [ ] Connect `libhybris` EGL platform to Weston 14 Direct-DECON backend for hardware-accelerated GL composition.
+- [ ] Implement Wayland client GPU buffer import via `android_wlegl` / `linux-dmabuf` EGLImage protocol.
 - [ ] Deploy standalone postmarketOS rootfs image to sdcard/userdata for boot testing without Android host services.
 
 ---
