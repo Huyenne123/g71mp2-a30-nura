@@ -1,7 +1,7 @@
 # Project Status: Mali-G71 Open GPU Driver for postmarketOS
 
 - **Current Date**: 2026-10-18
-- **Active Phase**: Phase 2, 3, 4, 5 & 6 — **Milestones 3A, 3B, 4A, 4B, 4C, 5, and 6 VERIFIED**. Moving to Phase 6 (Production Wayland Compositor Packaging & Mesa Panfrost `pan_kmod_kbase` Translation Prototype).
+- **Active Phase**: Phase 6A — **Milestones 3A through 6 VERIFIED; Milestone 6A Audited & Scoped**. Moving to Real postmarketOS Weston / TinyWL Integration & Libhybris DDK Loader.
 - **Device Target**: Samsung Galaxy A30 (`SM-A305F` / `universal7904`)
 - **GPU Target**: ARM Mali-G71 MP2 (2 cores, r0p0, GPU ID `0x60A0`, Bifrost v6)
 - **Kernel Target**: Linux 4.4.302-p6 (`neyuKernel_legacy`) downstream with `mali_kbase r26p0`
@@ -10,7 +10,13 @@
 
 ## 1. Executive Summary
 
-Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, **Mesa Panfrost Bifrost v6 gap analysis**, and **postmarketOS Wayland DECON backend & Bionic-musl bridge** are fully established and physically verified on the Samsung Galaxy A30 (`SM-A305F`).
+Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, **Mesa Panfrost Bifrost v6 gap analysis**, **direct DECON Window 3 presentation engine**, and **Milestone 6A runtime environment audit** are fully established on the Samsung Galaxy A30 (`SM-A305F`).
+
+**Milestone 6A (Runtime Environment Audit & Wayland Integration Gap) — Audited & Verified**:
+1. **Runtime Reality Established**: Audited all 9 test binaries and shared libraries using `readelf`. Confirmed that all binaries were compiled with `/system/bin/linker64` and executed exclusively under Android 11 (LineageOS 18.1 userdebug) with Bionic `libc.so`. **Zero tests have executed under Alpine Linux or musl libc (`ld-musl-aarch64.so.1`)** (`FIND-030`).
+2. **Compatibility Shim Scope Established**: Audited `libbionic_musl_shim.so` and `tests/bionic_shim_test`. Proved that while the C shim successfully unit-tests isolated Bionic functions, `libGLES_mali.so` was **not** loaded against this shim during graphics benchmarks (it was resolved by `/system/bin/linker64` against Android system libraries). Proved that running `libGLES_mali.so` under pure musl requires `libhybris` due to `libc++.so`, symbol versioning (`LIBC_N/P/R`), and Android TLS/pthread structures (`FIND-028`, `FIND-031`).
+3. **Compositor Integration Boundary Scoped**: Formally declared that no working Wayland compositor currently exists in the repository. `src/compositor/decon_backend.c` is a reusable display presentation abstraction library and `tests/decon_compositor_test.c` is a standalone synthetic presentation benchmark. Authored the complete technical specification for a native Weston output plugin (`backend-decon.so`) implementing `output->enable`, `output->repaint`, and retire fence synchronization (`analysis/milestone-6a-wayland-integration-gap.md`).
+4. **Partitioned Test Matrix**: Established two isolated, reproducible test environments (Android/Bionic vs Alpine/musl) with distinct evidence levels to ensure strict intellectual honesty and precision.
 
 **Milestone 3A (Proprietary EGL Offscreen Validation) — 100% physically verified**:
 1. Standalone `kbase_probe` verified low-level kernel handshake (UK 11.27), MTP page mapping (`0x3000`), context allocation, and memory management.
@@ -86,25 +92,32 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | **Panfrost GPU ID Audit (Milestone 5)** | **VERIFIED** | `analysis/milestone-5-panfrost-gpu-id-audit.md`, `0xF00F` mask, `0x60A0` mapping (FIND-025). |
 | **Bifrost ISA Gap Analysis (Milestone 5)**| **VERIFIED** | `analysis/milestone-5-bifrost-isa-comparison.md`, quirks & lowering pass audit (FIND-026). |
 | **Upstream Enablement Roadmap (5)** | **COMPLETED** | `analysis/milestone-5-upstream-enablement-roadmap.md`, 3-path strategy & matrix (FIND-027). |
-| **Bionic-Musl Shim Implementation (6)** | **VERIFIED** | `analysis/milestone-6-bionic-musl-bridge-implementation.md`, `tests/bionic_shim_test` (FIND-028). |
-| **Direct-DECON Wayland Backend (6)** | **VERIFIED** | `analysis/milestone-6-decon-wayland-backend.md`, `src/compositor/` (FIND-029). |
-| **120-Frame Compositor Benchmark (6)** | **VERIFIED** | `analysis/milestone-6-results.md`, `tests/decon_compositor_test`, 59.34 FPS locked VSYNC (FIND-029). |
+| **Bionic-Musl Shim Unit Test (6)** | **VERIFIED (Scoped)** | `analysis/milestone-6-bionic-musl-bridge-implementation.md`, `tests/bionic_shim_test` (FIND-028). |
+| **Direct-DECON Backend & Benchmark (6)** | **VERIFIED (Scoped)** | `analysis/milestone-6-decon-wayland-backend.md`, `tests/decon_compositor_test` (FIND-029). |
+| **Runtime Environment Audit (6A)** | **AUDITED & VERIFIED** | `analysis/milestone-6a-runtime-audit.md`, Android Bionic reality documented (FIND-030). |
+| **Vendor DDK Dependency Barrier (6A)** | **AUDITED & VERIFIED** | `analysis/milestone-6a-runtime-audit.md`, `libc++.so` / versioning barrier (FIND-031). |
+| **Wayland Compositor Gap Spec (6A)** | **COMPLETED** | `analysis/milestone-6a-wayland-integration-gap.md`, Weston backend plugin spec. |
 
 ---
 
 ## 3. Current Blockers & Challenges
 
-1. **Alpine Linux Native Weston Plugin Packaging**:
-   - `libdecon_backend.so` is standalone and operational; integration requires packaging a Weston plugin (`backend-decon.so`) or wlroots output backend for native Alpine Linux APK.
-2. **Upstream Mesa Panfrost Kernel Translation (Path B)**:
-   - While proprietary Mali r26p0 provides immediate, verified 60 FPS graphics via Path A, Path B requires implementing `pan_kmod_kbase.c` inside Mesa to forward DRM ioctls to `/dev/mali0`.
+1. **Vendor DDK Musl Incompatibility Barrier**:
+   - `libGLES_mali-64.so` cannot be loaded by pure musl libc due to `DT_NEEDED [libc++.so]` (Bionic C++ ABI) and symbol versioning (`LIBC_N/P/R`).
+   - Resolution: Must deploy `libhybris` (with `hybris-linker`) or an isolated Android container environment to load the proprietary DDK inside a musl/glibc Linux desktop.
+2. **Wayland Compositor Integration Gap**:
+   - `tests/decon_compositor_test.c` is a standalone synthetic presentation benchmark. Real Wayland presentation requires implementing a Weston output plugin (`backend-decon.so`) or wlroots output backend.
+3. **Absence of Mainline DRM in Downstream Kernel**:
+   - Downstream kernel 4.4 disables DRM (`# CONFIG_DRM is not set`) in favor of legacy DECON FB.
+   - Resolution: Weston DECON backend (`backend-decon.so`) bypasses DRM KMS entirely by driving Window 3 IDMA 0 directly via `S3CFB_WIN_CONFIG`.
 
 ---
 
 ## 4. Next Concrete Tasks
 
-1. **TASK-001 (Milestone 7)**: Author native Weston / TinyWL backend plugin (`weston-backend-decon`) hooking `output->repaint` directly into `decon_backend_present()`.
-2. **TASK-002 (Milestone 7)**: Implement `pan_kmod_kbase` shim prototype translating Mesa Panfrost DRM gem/job submissions to Kbase UK 11.27 atoms.
+1. **TASK-001 (Milestone 7)**: Implement `libhybris` dynamic loader integration to bridge `libGLES_mali-64.so` with Linux musl/glibc.
+2. **TASK-002 (Milestone 7)**: Author native Weston backend plugin (`weston-backend-decon.c`) implementing `output->enable`, `output->repaint`, and retire fence synchronization.
+3. **TASK-003 (Milestone 7 / Research)**: Implement `pan_kmod_kbase` shim prototype translating Mesa Panfrost DRM gem/job submissions to Kbase UK 11.27 atoms for pure open-source Gallium rendering.
 
 
 

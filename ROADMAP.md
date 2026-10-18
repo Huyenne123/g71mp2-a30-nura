@@ -113,7 +113,7 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 - [x] Implement freestanding Bionic-musl runtime shim (`src/bridge/bionic_musl_shim.c` -> `libbionic_musl_shim.so`) resolving the 6 core incompatibility classes (`__errno`, `_ctype_`, `__android_log_print`, `property_get/set`, Bionic FORTIFY checks, `ion_*` wrappers, `FIND-028`).
 - [x] Implement standalone Direct-DECON presentation backend (`src/compositor/decon_backend.c` -> `libdecon_backend.so`) driving Window 3 IDMA 0 via 1040-byte `S3CFB_WIN_CONFIG` (`0x441046d1`) with double-buffered ION swapchain and compile-time static assertions (`FIND-029`).
 - [x] Author and physically verify unit test suite `tests/bionic_shim_test` on Samsung Galaxy A30 hardware (all 6 verification tests passing).
-- [x] Author and physically execute 120-frame simulated Wayland compositor presentation loop (`tests/decon_compositor_test`) on physical EA8076 Super AMOLED screen, achieving locked **59.34 FPS** refresh rate, **16.61 ms** min frame time, **16.77 ms** max frame time (jitter < 0.16 ms), and clean system recovery (`FIND-029`).
+- [x] Author and physically execute 120-frame simulated presentation loop (`tests/decon_compositor_test`) on physical EA8076 Super AMOLED screen, achieving locked **59.34 FPS** refresh rate, **16.61 ms** min frame time, **16.77 ms** max frame time (jitter < 0.16 ms), and clean system recovery (`FIND-029`).
 - [x] Deliver Milestone 6 analysis reports:
   - `analysis/milestone-6-bionic-musl-bridge-implementation.md`
   - `analysis/milestone-6-decon-wayland-backend.md`
@@ -121,9 +121,23 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 7: postmarketOS Weston / TinyWL Plugin & Open-Source Panfrost Kernel Translation (Next)
-- [ ] Package `libdecon_backend.so` and `libbionic_musl_shim.so` as postmarketOS Alpine packages (`apkbuild`).
-- [ ] Implement native Weston output plugin (`backend-decon.so`) hooking `output->repaint` into `decon_backend_present()`.
+## Milestone 6A: Verify Native postmarketOS Integration & Runtime Audit (Completed)
+- [x] Audit commit `11d771f` ELF metadata: verify that all binaries and libraries execute under Android's `/system/bin/linker64` with Bionic `libc.so` (`FIND-030`).
+- [x] Document that zero tests have executed under native Alpine Linux / musl libc (`ld-musl-aarch64.so.1`).
+- [x] Audit compatibility shim scope: verify that vendor `libGLES_mali.so` was loaded against Android system libraries, not against `libbionic_musl_shim.so` (`FIND-028`).
+- [x] Analyze vendor DDK dynamic dependency barrier under pure musl (`libc++.so`, symbol versioning `LIBC_N/P/R`, `FIND-031`).
+- [x] Define compositor integration boundary: document that `tests/decon_compositor_test` is a synthetic presentation benchmark, not an integrated Wayland compositor.
+- [x] Author complete specification for native Weston output backend plugin (`weston-backend-decon`).
+- [x] Partition test matrix into Android/Bionic (active physical target) vs Alpine/musl (unbooted target).
+- [x] Deliver Milestone 6A analysis reports:
+  - `analysis/milestone-6a-runtime-audit.md`
+  - `analysis/milestone-6a-wayland-integration-gap.md`
+
+---
+
+## Milestone 7: Real postmarketOS Weston Plugin & Libhybris / Panfrost Translation (Next)
+- [ ] Implement `libhybris` dynamic linker integration to bridge `libGLES_mali-64.so` with Linux musl/glibc.
+- [ ] Implement native Weston output plugin (`weston-backend-decon.so`) hooking `output->repaint` directly into `decon_backend_present()`.
 - [ ] Boot into full postmarketOS graphical desktop environment (e.g. Phosh, Sxmo, or Weston) on Galaxy A30 with hardware acceleration.
 - [ ] (Path B): Implement `pan_kmod_kbase.c` userspace kernel translation prototype inside Mesa Panfrost to translate DRM Panfrost ioctls to Kbase UK 11.27 atoms on downstream Linux 4.4.
 

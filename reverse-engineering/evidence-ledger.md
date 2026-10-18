@@ -396,30 +396,62 @@ This ledger records every verified finding, observed binary behavior, and archit
 
 ---
 
-### FIND-028: Bionic-to-Musl Compatibility Shim Runtime Validation
-- **Description**: The proprietary Mali Bifrost r26p0 userspace driver (`libGLES_mali.so`) can execute cleanly inside a non-Android musl libc environment using a lightweight, freestanding C bridge (`libbionic_musl_shim.so`). The bridge resolves the six fundamental Bionic-musl ABI incompatibilities: thread-local errno redirection (`__errno`), BSD character classification (`_ctype_`), Android logging redirection (`__android_log_print`), system property emulation (`property_get`/`set`), Bionic FORTIFY buffer overflow protection (`__memcpy_chk`, etc.), and 64-bit kernel ION memory allocation/sharing wrappers (`0xc0204900`).
+### FIND-028: Bionic Compatibility Shim Unit Validation (Android Userspace)
+- **Description**: A freestanding C implementation of common Bionic libc primitives (`libbionic_musl_shim.so`) was authored to model the translation of six common ABI divergence points: thread-local errno redirection (`__errno`), BSD character classification (`_ctype_`), Android logging redirection (`__android_log_print`), system property emulation (`property_get`/`set`), Bionic FORTIFY buffer overflow protection (`__memcpy_chk`, etc.), and 64-bit kernel ION memory allocation/sharing wrappers (`0xc0204900`). The unit test harness (`tests/bionic_shim_test`) successfully verified each of these 6 subsystems in isolation.
+- **Scope & Limitations**:
+  - The test ran exclusively on the Android 11 userspace under `/system/bin/linker64` and Bionic `libc.so`.
+  - The proprietary vendor DDK (`libGLES_mali.so`) was **not** loaded against this shim during graphics tests; rather, `libGLES_mali.so` was resolved by `/system/bin/linker64` against Android system libraries.
+  - The shim alone does not resolve Android `libc++.so`, symbol versioning (`LIBC_N/P/R`), or Android linker namespace requirements under native Alpine musl.
 - **Supporting Evidence**:
-  - Implementation of `src/bridge/bionic_musl_shim.c` and compilation into `src/bridge/libbionic_musl_shim.so` (15 KB).
+  - Source code: `src/bridge/bionic_musl_shim.c` and header `src/bridge/bionic_musl_shim.h`.
   - Execution of `tests/bionic_shim_test` on physical Samsung Galaxy A30 hardware (`SM-A305F`).
   - All 6 unit verification tests passed with verified return pointers, string classification, log emissions, property lookups, and ION buffer allocations/sharing.
-- **Source / Artifact**: `src/bridge/libbionic_musl_shim.so` / `tests/bionic_shim_test` / `analysis/milestone-6-bionic-musl-bridge-implementation.md`.
+- **Source / Artifact**: `src/bridge/libbionic_musl_shim.so` / `tests/bionic_shim_test` / `analysis/milestone-6a-runtime-audit.md`.
 - **Location**: `src/bridge/`, `tests/bionic_shim_test.c`.
+- **Confidence Level**: Confirmed Fact for isolated C shim unit execution on Android (100%); Inapplicable to native musl DDK loading without a linker bridge (0%).
+- **Status**: **Verified with Documented Scope**.
+
+---
+
+### FIND-029: Direct-DECON Presentation Engine Live Benchmark (Synthetic Presentation Harness)
+- **Description**: A modular C presentation library (`libdecon_backend.so`) successfully presents continuous 60 Hz hardware-accelerated graphics directly to Samsung DECON Window 3 (IDMA channel 0) via `S3CFB_WIN_CONFIG` (`0x441046d1`) on the EA8076 Super AMOLED display without requiring Android HWC2 or SurfaceFlinger services. The double-buffered ION DMA-BUF swapchain (2x 10.24 MB) achieved 59.34 FPS across 120 consecutive frames with sub-millisecond steady-state jitter (< 0.16 ms), zero dropped frames, and hardware retire fence VSYNC synchronization.
+- **Scope & Limitations**:
+  - `tests/decon_compositor_test` is a **standalone synthetic presentation harness**, not an integrated Wayland compositor (Weston, wlroots, or TinyWL). It does not implement Wayland wire protocols, client buffer management, or touchscreen input.
+  - The test executable was compiled with `/system/bin/linker64` and executed within Android userspace.
+- **Supporting Evidence**:
+  - Implementation of `src/compositor/decon_backend.c` and `src/compositor/libdecon_backend.so`.
+  - Execution of 120-frame simulated presentation loop (`tests/decon_compositor_test`) on physical hardware.
+  - Frame delivery: 120 frames in 2.022 seconds (59.34 FPS).
+  - Pacing metrics: 16.61 ms minimum frame time, 16.77 ms maximum frame time.
+  - Zero screen tearing, immediate recovery of SurfaceFlinger upon test completion.
+- **Source / Artifact**: `src/compositor/libdecon_backend.so` / `tests/decon_compositor_test` / `analysis/milestone-6a-wayland-integration-gap.md`.
+- **Location**: `src/compositor/`, `tests/decon_compositor_test.c`.
+- **Confidence Level**: Confirmed Fact for Direct DECON Window 3 hardware scanout (100%); Non-existent as an integrated Wayland compositor (0%).
+- **Status**: **Verified with Documented Scope**.
+
+---
+
+### FIND-030: Runtime Environment Audit: Solely Android Bionic / Zero Native Musl Execution
+- **Description**: Every test binary (`kbase_probe`, `egl_offscreen_test`, `fb_probe`, `fb_present_test`, `ion_mali_import_test`, `decon_present_test`, `decon_flip_test`, `bionic_shim_test`, `decon_compositor_test`) and shared library generated across Milestones 1 through 6 has been compiled targeting the Android Bionic sysroot (`PT_INTERP: /system/bin/linker64`, `DT_NEEDED: libc.so`) and executed on the physical Samsung Galaxy A30 running Android 11 (LineageOS 18.1 userdebug). No binary or library has yet executed under an Alpine Linux / musl rootfs (`/lib/ld-musl-aarch64.so.1`).
+- **Supporting Evidence**:
+  - `readelf -l tests/decon_compositor_test`: `[Requesting program interpreter: /system/bin/linker64]`.
+  - `readelf -d tests/decon_compositor_test`: `NEEDED [libc.so]`, `NEEDED [libdl.so]`.
+  - Target system query: `/etc/os-release` does not exist; `ro.build.display.id` = `lineage_a30-userdebug 11 RQ3A.211001.001`.
+- **Source / Artifact**: `tests/*` / `analysis/milestone-6a-runtime-audit.md`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
 ---
 
-### FIND-029: Modular Direct-DECON Presentation Engine Benchmark (59.34 FPS / 16.6 ms)
-- **Description**: A freestanding Direct-DECON presentation engine (`libdecon_backend.so`) successfully presents continuous 60 Hz hardware-accelerated graphics directly to Samsung DECON Window 3 (IDMA channel 0) via `S3CFB_WIN_CONFIG` (`0x441046d1`) on the EA8076 Super AMOLED display without requiring Android HWC2 or SurfaceFlinger services. The double-buffered ION DMA-BUF swapchain (2x 10.24 MB) achieved 59.34 FPS across 120 consecutive frames with sub-millisecond steady-state jitter (< 0.16 ms), zero dropped frames, and hardware retire fence VSYNC synchronization.
+### FIND-031: Proprietary Vendor DDK Dynamic Dependency Barrier Under Pure Musl Libc
+- **Description**: The proprietary Mali Bifrost r26p0 driver (`libGLES_mali-64.so`) cannot be dynamically loaded or executed by pure Alpine musl libc (`ld-musl-aarch64.so.1`) using a simple C shim. The vendor binary possesses hard dynamic dependencies on 8 shared libraries (`liblog.so`, `libz.so`, `libnativewindow.so`, `libm.so`, `libc.so`, `libdl.so`, `libion_exynos.so`, `libc++.so`), requires Android symbol versioning (`LIBC`, `LIBC_N`, `LIBC_P`, `LIBC_R`), and requires Bionic-specific thread/TLS structures. Loading this proprietary binary under native Linux distributions strictly requires an isolated dynamic linker namespace with Bionic pthreads translation (`libhybris`) or an Android container environment.
 - **Supporting Evidence**:
-  - Implementation of `src/compositor/decon_backend.c` and `src/compositor/libdecon_backend.so`.
-  - Execution of 120-frame simulated Wayland compositor presentation loop (`tests/decon_compositor_test`) on physical hardware.
-  - Frame delivery: 120 frames in 2.022 seconds (59.34 FPS).
-  - Pacing metrics: 16.61 ms minimum frame time, 16.77 ms maximum frame time.
-  - Zero screen tearing, immediate recovery of SurfaceFlinger upon test completion.
-- **Source / Artifact**: `src/compositor/libdecon_backend.so` / `tests/decon_compositor_test` / `analysis/milestone-6-results.md`.
-- **Location**: `src/compositor/`, `tests/decon_compositor_test.c`.
+  - `readelf -d artifacts/proprietary/libGLES_mali-64.so` (34 dynamic tags, 8 `DT_NEEDED` libraries).
+  - `readelf -V artifacts/proprietary/libGLES_mali-64.so` (enforces `LIBC_N`, `LIBC_P`, `LIBC_R`).
+  - Architectural evaluation in `analysis/milestone-6a-runtime-audit.md`.
+- **Source / Artifact**: `artifacts/proprietary/libGLES_mali-64.so` / `analysis/milestone-6a-runtime-audit.md`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
 
 
