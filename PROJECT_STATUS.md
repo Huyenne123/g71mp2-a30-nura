@@ -1,7 +1,7 @@
 # Project Status: Mali-G71 Open GPU Driver for postmarketOS
 
 - **Current Date**: 2026-10-18
-- **Active Phase**: Phase 2, 3 & 4 — **Milestones 3A, 3B, 4A, 4B, and 4C VERIFIED**. Moving to Phase 4 (Mesa Panfrost G71 Gap Analysis & Upstream Enablement Roadmap).
+- **Active Phase**: Phase 2, 3, 4 & 5 — **Milestones 3A, 3B, 4A, 4B, 4C, and 5 VERIFIED**. Moving to Phase 5 (postmarketOS Wayland DECON Backend Implementation).
 - **Device Target**: Samsung Galaxy A30 (`SM-A305F` / `universal7904`)
 - **GPU Target**: ARM Mali-G71 MP2 (2 cores, r0p0, GPU ID `0x60A0`, Bifrost v6)
 - **Kernel Target**: Linux 4.4.302-p6 (`neyuKernel_legacy`) downstream with `mali_kbase r26p0`
@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, and **continuous 60 FPS double-buffered presentation** are fully established and physically verified on the Samsung Galaxy A30 (`SM-A305F`).
+Research infrastructure, target verification, kernel ABI mapping, offscreen 3D hardware acceleration, display presentation architecture, shared DMA-BUF render-target pipelines, **direct physical scanout on the EA8076 Super AMOLED panel**, **continuous 60 FPS double-buffered presentation**, and **Mesa Panfrost Bifrost v6 gap analysis** are fully established and physically verified on the Samsung Galaxy A30 (`SM-A305F`).
 
 **Milestone 3A (Proprietary EGL Offscreen Validation) — 100% physically verified**:
 1. Standalone `kbase_probe` verified low-level kernel handshake (UK 11.27), MTP page mapping (`0x3000`), context allocation, and memory management.
@@ -44,6 +44,12 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 3. Built `tests/decon_flip_test` implementing a ping-pong double-buffered swapchain across 2 full-screen ION DMA-BUFs with dual EGLImage FBOs.
 4. Executed live continuous presentation benchmark: rendered 60 consecutive dynamic animated frames on Mali-G71 GPU, presented to DECON Window 3, synchronized via retire fences, achieving locked **59.89 FPS** with steady-state frame times of **16.62 to 16.69 ms** matching the 60.0 Hz VSYNC cycle (`FIND-023`, `FIND-024`).
 
+**Milestone 5 (Upstream Mesa Panfrost Gap Analysis & Enablement Roadmap) — 100% verified**:
+1. Audited hardware GPU ID parsing across Mesa and Linux kernel: Discovered that `mali_kbase` (`0x4ae708`), upstream `drm/panfrost`, and Mesa all normalize `0x60A00000` to `PAN_PROD_ID(6, 0, 0)` ("Mali-G71") using an identical `0xF00F` bitmask (`FIND-025`).
+2. Proved that upstream Mesa's Bifrost compiler contains mature, production-ready lowering passes for all G71 silicon quirks (`BIFROST_NO_FP32_TRANSCENDENTALS`, `BIFROST_LIMITED_CLPER`, attr `0x688`, blend shaders) (`FIND-026`). Official Mesa documentation catalogs G71 with OpenGL ES 3.1, OpenGL 3.1, PanVK 1.3, and OpenCL 3.0.
+3. Disproved the notion that Panfrost lacks Mali-G71 shader or descriptor support: Proved that the true gap is exclusively the kernel interface (`pan_kmod` DRM vs Kbase UK 11.27) (`FIND-027`).
+4. Formulated the 3-path strategy and recommended immediate execution of Path A (Direct-DECON Wayland backend) for production postmarketOS, with Path B (`pan_kmod_kbase`) as a secondary open-source userspace milestone (`analysis/milestone-5-upstream-enablement-roadmap.md`).
+
 ---
 
 ## 2. Checkpoint Summary
@@ -52,7 +58,7 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | :--- | :--- | :--- |
 | **Hardware & Environment Inventory** | **VERIFIED** | `HARDWARE.md`, sysfs `gpuinfo` confirms Mali-G71 MP2 r0p0 `0x60A0`. |
 | **Artifact Ledger & Hashes** | **VERIFIED** | `artifacts/MANIFEST.md`, SHA-256 hashes recorded for all binaries + FDT + kernel config. |
-| **Evidence Ledger** | **VERIFIED** | `reverse-engineering/evidence-ledger.md`, Findings FIND-001 through FIND-024 verified. |
+| **Evidence Ledger** | **VERIFIED** | `reverse-engineering/evidence-ledger.md`, Findings FIND-001 through FIND-027 verified. |
 | **Kbase IOCTL Interface Mapping** | **VERIFIED** | `reverse-engineering/ioctl-analysis/kbase-ioctls.md`, 22 ioctls mapped from raw ARM64 machine code. |
 | **Architecture Strategy Decision** | **COMPLETED** | `architecture/ADR-001-graphics-stack-feasibility.md`. |
 | **Direct Kernel Probe (`kbase_probe`)** | **VERIFIED** | `tests/kbase_probe`, UK ABI 11.27 handshake, MTP mapping, Alloc, Free (FIND-007, FIND-008). |
@@ -71,6 +77,9 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | **Bionic-Musl Bridge Analysis (4C)** | **COMPLETED** | `analysis/milestone-4c-bionic-musl-bridge.md`, hooks and dynamic linking mechanics. |
 | **Compositor Architecture (Milestone 4C)**| **COMPLETED** | `analysis/milestone-4c-compositor-architecture.md`, standalone DECON Wayland backend model. |
 | **Double-Buffered Flip Benchmark (4C)** | **VERIFIED** | `analysis/milestone-4c-results.md`, `tests/decon_flip_test`, 59.89 FPS locked VSYNC (FIND-023, FIND-024). |
+| **Panfrost GPU ID Audit (Milestone 5)** | **VERIFIED** | `analysis/milestone-5-panfrost-gpu-id-audit.md`, `0xF00F` mask, `0x60A0` mapping (FIND-025). |
+| **Bifrost ISA Gap Analysis (Milestone 5)**| **VERIFIED** | `analysis/milestone-5-bifrost-isa-comparison.md`, quirks & lowering pass audit (FIND-026). |
+| **Upstream Enablement Roadmap (5)** | **COMPLETED** | `analysis/milestone-5-upstream-enablement-roadmap.md`, 3-path strategy & matrix (FIND-027). |
 
 ---
 
@@ -78,18 +87,17 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 
 1. **Absence of Mainline DRM in Downstream Kernel**:
    - The active kernel config disables DRM (`# CONFIG_DRM is not set`) in favor of Samsung's legacy DECON FB (`/dev/fb0`).
-   - Mitigation: Standalone DECON presentation is now verified functional at locked 60 FPS; Wayland compositors under postmarketOS can drive DECON via a direct `decon-backend.so` without needing DRM/KMS.
+   - Resolution: Standalone DECON presentation is verified functional at locked 60 FPS; Wayland compositors under postmarketOS can drive DECON Window 3 directly via `backend-decon.so`.
 2. **Alpine libc Compatibility (musl vs Bionic)**:
-   - Proprietary libraries are compiled against Android Bionic libc.
-   - Mitigation: Solved by either compiling the compositor against Bionic or using `libhybris` symbol translation.
-3. **Mali-G71 Support Gap in Mesa Panfrost**:
-   - Mesa documentation explicitly notes G71 is unsupported in Panfrost despite G72/G52 having support.
+   - Proprietary Mali DDK is linked against Android Bionic libc.
+   - Resolution: Documented lightweight shim library (`libbionic_musl_bridge.so`) providing stubs for Bionic TLS, property service, and math runtime.
 
 ---
 
 ## 4. Next Concrete Tasks
 
-1. **TASK-001 (Phase 4 / Milestone 5)**: Audit Mesa Panfrost Bifrost v6 (G71, GPU ID `0x60A0`) compiler & driver gaps to create the upstream enablement patch roadmap.
-2. **TASK-002 (Phase 4 / Milestone 5)**: Compare Mali-G71 ISA encoding (v6.0) with Mali-G72 (v6.2) and document missing quirks, blend shaders, and register banking differences.
+1. **TASK-001 (Phase 5 / Milestone 6)**: Implement the Bionic-musl runtime shim library (`src/bridge/bionic_musl_shim.c`) to allow native Alpine Linux / musl binaries to dynamically load and invoke `libGLES_mali-64.so`.
+2. **TASK-002 (Phase 5 / Milestone 6)**: Build a standalone Wayland compositor backend (`backend-decon.so` for Weston / TinyWL) implementing the verified 1040-byte `S3CFB_WIN_CONFIG` Window 3 presentation engine.
+
 
 

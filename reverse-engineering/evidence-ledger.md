@@ -352,3 +352,45 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Location**: `/dev/graphics/fb0`, `/dev/mali0`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
+---
+
+### FIND-025: Mali-G71 Hardware GPU ID (0x60A00000) & Model Matching Normalization (0xF00F Mask)
+- **Description**: The Mali-G71 MP2 on Exynos 7904 reports 32-bit `GPU_ID` register `0x60A00000` (Product `0x60A0`, Revision `0x0000`). Upstream Mesa Panfrost and the Linux kernel Panfrost driver both normalize this identifier to standard `PAN_PROD_ID(6, 0, 0)` / `0x6000` using the exact same bitwise mask (`0xF00F`), which masks out the internal architectural revision field (`0xA` at bits [23:20]). Disassembly of downstream `mali_kbase` (`kbase_show_gpuinfo` @ `0x4ae708`) confirmed the exact same `0xF00F` comparison mask (`tst w14, #0xf00f`).
+- **Supporting Evidence**:
+  - Kernel disassembly of `kbase_show_gpuinfo` (`artifacts/extracted/kernel.img` @ `0x4ae708`):
+    `mov w12, #0xf00f; lsr w7, w9, #16; ldr w14, [x13, x11]; eor w14, w14, w7; tst w14, w12; b.eq ...`
+  - Linux mainline `drivers/gpu/drm/panfrost/panfrost_device.h`:
+    `if (match_id & 0xf000) match_id &= 0xf00f; return match_id - id;`
+  - Mesa `src/panfrost/model/pan_model.h`:
+    `PAN_ARCH_MAJOR(0x60A00000) = 6`, `PAN_ARCH_MINOR(0x60A00000) = 0`, `PAN_PRODUCT_MAJOR(0x60A00000) = 0` -> evaluates to `PAN_PROD_ID(6, 0, 0) = 0x060000`, matching `BIFROST_MODEL(PAN_PROD_ID(6, 0, 0), "G71", ...)`.
+- **Source / Artifact**: `artifacts/extracted/kernel.img` / upstream Mesa `pan_model.h` / upstream Linux `panfrost_device.h`.
+- **Location**: `kernel.img` @ `0x4ae708`, Mesa `pan_model.h:127`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-026: Upstream Mesa Panfrost Bifrost v6.0 Compiler Maturity & Quirks Lowering
+- **Description**: Upstream Mesa Panfrost contains full, production-ready compiler lowering passes for all documented hardware quirks of Bifrost v6.0 (Mali-G71). Specifically, G71 lacks dedicated FP32 transcendental SFUs and full cross-lane permutations (`CLPER`). The Bifrost compiler lowers these transparently to polynomial LUT approximations (`bi_lower_fsincos_32`, `bi_lower_fexp2_32`, `bi_lower_flog2_32`, `bi_lower_fpow_32`, `bi_lower_frsq_32`, `bi_lower_frcp_32`) and ALU swizzles (`BIFROST_LIMITED_CLPER`). Official Mesa documentation explicitly catalogs G71 with support for OpenGL ES 3.1, OpenGL 3.1, Vulkan 1.3 (PanVK), and OpenCL 3.0.
+- **Supporting Evidence**:
+  - Source audit of `src/panfrost/compiler/bifrost/bi_quirks.h` (lines 40-50).
+  - Source audit of `src/panfrost/compiler/bifrost/bifrost_compile.c` (lines 447, 1395, 2854, 2864, 2874, 3328, 3335).
+  - Mesa official hardware compatibility table (`docs/drivers/panfrost.rst`).
+- **Source / Artifact**: Upstream Mesa repository (`scratch/mesa/`).
+- **Location**: `src/panfrost/compiler/bifrost/`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-027: Kernel Interface Divergence: Upstream DRM Panfrost vs Downstream ARM Kbase ABI
+- **Description**: The gap preventing upstream Mesa Panfrost from executing on the Samsung Galaxy A30 is strictly at the kernel interface level, not in shader compilation or hardware command descriptors. Mesa Panfrost's `pan_kmod` communicates exclusively via the Linux DRM subsystem (`/dev/dri/renderD128` via `DRM_IOCTL_PANFROST_*`). The downstream kernel runs ARM Kbase (`/dev/mali0` via UK 11.27 ioctls) with `CONFIG_DRM` disabled. However, the underlying hardware job chain descriptor format (`v6.xml` Job Header, Fragment Job, Tiler Job) is identical between both drivers, enabling either a `pan_kmod_kbase` userspace translation backend or the Direct-DECON proprietary bridge.
+- **Supporting Evidence**:
+  - Source comparison between `src/panfrost/lib/kmod/panfrost_kmod.c` and `tests/kbase_probe.c`.
+  - Comparison between `src/panfrost/genxml/v6.xml` and Kbase `struct base_jd_atom` `jc` pointer field.
+  - Absence of `CONFIG_DRM` in `artifacts/extracted/kernel_config.txt`.
+- **Source / Artifact**: `scratch/mesa/` / `artifacts/extracted/kernel_config.txt` / `tests/kbase_probe.c`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+

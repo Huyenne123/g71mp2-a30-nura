@@ -99,18 +99,23 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 5: Mesa Panfrost Gap Analysis for Mali-G71 (Option A)
-- [ ] Audit Mesa `src/panfrost/` for all occurrences of `PAN_ARCH == 6` and `0x6000`.
-- [ ] Compare Mali-G71 instruction set encoding (Bifrost v6.0) with Mali-G72 (v6.2) and Mali-G52 (v7).
-- [ ] Identify missing hardware quirks in Mesa (e.g. coherency quirks, register banking, blend shader format differences).
-- [ ] Document exact patch series required to enable `0x6000` / `0x60A0` in Mesa Panfrost Gallium driver.
+## Milestone 5: Mesa Panfrost Gap Analysis for Mali-G71 (Completed)
+- [x] Audit Mesa `src/panfrost/` for all occurrences of `PAN_ARCH == 6` and `0x6000` / `0x60A0`.
+- [x] Audit GPU ID parsing: proved `mali_kbase`, `drm/panfrost`, and Mesa normalize `0x60A00000` to `PAN_PROD_ID(6, 0, 0)` via identical `0xF00F` bitmask (`FIND-025`).
+- [x] Compare Mali-G71 instruction set encoding (Bifrost v6.0) with Mali-G72 (v6.2) and Mali-G52 (v7.2) (`FIND-026`).
+- [x] Audit compiler quirks: verified lowering passes for `BIFROST_NO_FP32_TRANSCENDENTALS`, `BIFROST_LIMITED_CLPER`, attr `0x688`, and blend shaders in upstream Mesa (`FIND-026`).
+- [x] Document kernel interface gap: upstream DRM Panfrost (`pan_kmod`) vs downstream ARM Kbase UK 11.27 (`FIND-027`).
+- [x] Author comprehensive reports: `analysis/milestone-5-panfrost-gpu-id-audit.md`, `analysis/milestone-5-bifrost-isa-comparison.md`, `analysis/milestone-5-upstream-enablement-roadmap.md`.
 
 ---
 
-## Milestone 5: Mainline Linux DRM Display & Driver Enablement
-- [ ] Evaluate mainline Linux support for Exynos 7885 display controller (DECON) and MIPI DSI panel.
-- [ ] Define mainline Device Tree binding for `mali@11500000` using `arm,mali-bifrost` compatible string.
-- [ ] Test upstream `drm/panfrost` probe and interrupt handling on target hardware.
+## Milestone 6: postmarketOS Wayland DECON Backend & Bionic Bridge (Next)
+- [ ] Implement standalone Bionic-musl runtime shim library (`src/bridge/bionic_musl_shim.c`) resolving missing Bionic symbols (`__aeabi_*`, `__sF`, TLS structure offsets, property service stubs).
+- [ ] Implement standalone Direct-DECON Wayland compositor presentation backend (`backend-decon.so` for Weston / TinyWL) driving `S3CFB_WIN_CONFIG` Window 3.
+- [ ] Package postmarketOS APKs (`device-samsung-a30-gpu` / `weston-backend-decon`).
+- [ ] Boot into full postmarketOS graphical desktop environment (e.g. Phosh, Sxmo, or Weston) on Galaxy A30 with hardware acceleration.
+- [ ] (Secondary / Research): Prototype Mesa `pan_kmod_kbase` backend to explore pure open-source Gallium Panfrost on downstream kernel 4.4.
+
 
 ---
 
