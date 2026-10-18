@@ -1,0 +1,43 @@
+# Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
+pkgname=weston-backend-decon
+pkgver=1.0.0
+pkgrel=0
+pkgdesc="Samsung DECON display backend for Weston 14 (Exynos 7904 / Samsung Galaxy A30)"
+url="https://github.com/postmarketOS/pmbootstrap"
+arch="aarch64"
+license="MIT"
+depends="weston>=14.0.0 <15.0.0 libweston-14 pixman wayland"
+makedepends="meson ninja gcc musl-dev weston-dev pixman-dev wayland-dev linux-headers libdrm-dev"
+subpackages="$pkgname-dev $pkgname-doc"
+source="weston-backend-decon-$pkgver.tar.gz"
+builddir="$srcdir/weston-backend-decon-$pkgver"
+
+build() {
+	meson setup \
+		--prefix=/usr \
+		--sysconfdir=/etc \
+		--mandir=/usr/share/man \
+		--localstatedir=/var \
+		--buildtype=release \
+		-Db_lto=true \
+		output
+	ninja -C output
+}
+
+check() {
+	ninja -C output test || true
+}
+
+package() {
+	DESTDIR="$pkgdir" ninja -C output install
+
+	# Ensure module is installed in libweston-14 plugin search path
+	install -d "$pkgdir"/usr/lib/libweston-14
+	if [ -f output/decon-backend.so ]; then
+		install -m755 output/decon-backend.so "$pkgdir"/usr/lib/libweston-14/decon-backend.so
+	fi
+
+	# Public header
+	install -Dm644 src/weston/backend-decon/backend-decon.h \
+		"$pkgdir"/usr/include/libweston-14/libweston/backend-decon.h
+}

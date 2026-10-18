@@ -15,9 +15,12 @@ tests/decon_present_test
 tests/decon_flip_test
 tests/bionic_shim_test
 tests/decon_compositor_test
+tests/weston_backend_test
 src/bridge/*.so
 src/compositor/*.so
 src/compositor/*.o
+src/weston/backend-decon/*.so
+src/weston/backend-decon/*.o
 
 
 # Temporary / build files

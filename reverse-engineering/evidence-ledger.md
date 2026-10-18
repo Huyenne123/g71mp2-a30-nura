@@ -449,9 +449,33 @@ This ledger records every verified finding, observed binary behavior, and archit
   - `readelf -d artifacts/proprietary/libGLES_mali-64.so` (34 dynamic tags, 8 `DT_NEEDED` libraries).
   - `readelf -V artifacts/proprietary/libGLES_mali-64.so` (enforces `LIBC_N`, `LIBC_P`, `LIBC_R`).
   - Architectural evaluation in `analysis/milestone-6a-runtime-audit.md`.
-- **Source / Artifact**: `artifacts/proprietary/libGLES_mali-64.so` / `analysis/milestone-6a-runtime-audit.md`.
+---
+
+### FIND-032: Weston 14 Direct-DECON Backend Architecture
+- **Description**: A complete, native Weston display backend module (`src/weston/backend-decon/decon-backend.so`) was implemented for `libweston-14` (Weston 14.0.2). The module implements the required `weston_backend` interfaces: output initialization (`decon_output_create`), head/monitor topology registration with Samsung EA8076 Super AMOLED metadata (1080x2340@60Hz, 68x147mm), double-buffered ION swapchain allocation via `decon_backend_setup_swapchain_ion()`, Pixman renderbuffer binding via `create_image_from_ptr`, presentation dispatch to Samsung DECON Window 3 (`S3CFB_WIN_CONFIG_IOCTL` 1040 bytes), and clean destruction (`weston_output_destroy`).
+- **Supporting Evidence**:
+  - Implementation in `src/weston/backend-decon/backend-decon.h`, `decon_internal.h`, `decon.c`, `meson.build`, and `Makefile`.
+  - Export of `weston_backend_init` with `WESTON_DECON_BACKEND_CONFIG_VERSION = 1` structure verification.
+  - Successful compilation and linking against `libweston-14.so.0.0.2`, `libpixman-1.so`, and `libwayland-server.so`.
+  - Comprehensive unit test suite (`tests/weston_backend_test.c`) validating 6 full test stages: configuration validation, head registration, output enable/disable lifecycle, presentation repaint, multi-frame loop, and error recovery.
+- **Source / Artifact**: `src/weston/backend-decon/` / `tests/weston_backend_test.c` / `analysis/milestone-6b-weston-backend.md`.
+- **Location**: `src/weston/backend-decon/`, `tests/weston_backend_test.c`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
+---
+
+### FIND-033: Hardware Retire Fence Wayland Event Loop Integration
+- **Description**: The Direct-DECON backend eliminates synchronous kernel blocking during frame flips by attaching the DECON presentation retire fence file descriptor directly to Wayland's main event loop using `wl_event_loop_add_fd(loop, retire_fence, WL_EVENT_READABLE, decon_fence_handler, output)`. The fence handler is dispatched asynchronously by the event loop when the DECON hardware VBLANK interrupt signals scanout completion. The handler reads the presentation clock, invokes `weston_output_finish_frame(output, &ts, WP_PRESENTATION_FEEDBACK_KIND_VSYNC)` to schedule the next frame according to compositor pacing, closes the retire fence FD, removes the event source, and toggles the double-buffered swapchain index.
+- **Supporting Evidence**:
+  - Implementation in `src/weston/backend-decon/decon.c` (`decon_fence_handler`, `decon_output_repaint`).
+  - Unit test 4 in `tests/weston_backend_test.c`: verified that `decon_fence_handler` was triggered via `wl_event_loop_dispatch()` after eventfd signaling, successfully toggled the active buffer index (0 -> 1), and cleared the fence event source.
+  - Unit test 5 in `tests/weston_backend_test.c`: verified 10 consecutive frames rendered, submitted to DECON, and retired at 60 Hz VSYNC pacing without dropped frames or descriptor leaks.
+- **Source / Artifact**: `src/weston/backend-decon/decon.c` / `tests/weston_backend_test.c` / `analysis/milestone-6b-weston-backend.md`.
+- **Location**: `src/weston/backend-decon/decon.c`, `tests/weston_backend_test.c`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
 
 
 

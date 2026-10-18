@@ -24,7 +24,9 @@ typedef signed long    int64_t;
 typedef signed long    intptr_t;
 typedef unsigned long  uintptr_t;
 
+#ifndef NULL
 #define NULL ((void*)0)
+#endif
 
 #define DECON_DEFAULT_WIDTH        1080
 #define DECON_DEFAULT_HEIGHT       2340
@@ -34,6 +36,70 @@ typedef unsigned long  uintptr_t;
 #define DECON_PRIMARY_WINDOW       3        /* Exynos 7904 DECON-0 IDMA channel 0 routing (FIND-021) */
 
 #define S3CFB_WIN_CONFIG_IOCTL     0x441046d1 /* _IOW(0x46, 209, 1040 bytes) (FIND-013, FIND-020) */
+
+/* ION Definitions */
+#define ION_IOC_MAGIC 'I'
+#define ION_IOC_ALLOC 0xc0204900
+#define ION_IOC_FREE  0xc0044901
+#define ION_IOC_SHARE 0xc0084904
+
+struct ion_allocation_data {
+    size_t len;
+    size_t align;
+    unsigned int heap_id_mask;
+    unsigned int flags;
+    int handle;
+    int _pad;
+};
+
+struct ion_fd_data {
+    int handle;
+    int fd;
+};
+
+struct ion_handle_data {
+    int handle;
+};
+
+/* -------------------------------------------------------------------------
+ * Exact 1040-Byte S3CFB_WIN_CONFIG Structure Layout (FIND-020)
+ * ------------------------------------------------------------------------- */
+
+struct decon_win_config {
+    int32_t  state;             /* Offset 0x00 (0)  : DECON_WIN_STATE_BUFFER = 2, DISABLED = 0 */
+    int32_t  reserved0;         /* Offset 0x04 (4)  : 0 */
+    int32_t  fd_idma[3];        /* Offset 0x08 (8)  : [0]=DMA-BUF fd, [1]=-1, [2]=-1 */
+    int32_t  fence_fd;          /* Offset 0x14 (20) : -1 if pre-synced */
+    int32_t  fence_reg;         /* Offset 0x18 (24) : 0 */
+    uint32_t plane_alpha;       /* Offset 0x1C (28) : 0-255 (255 = opaque) */
+    uint32_t blending;          /* Offset 0x20 (32) : DECON_BLENDING_NONE = 0 */
+    uint32_t idma_type;         /* Offset 0x24 (36) : 0 (Primary IDMA channel) */
+    uint32_t format;            /* Offset 0x28 (40) : DECON_PIXEL_FORMAT_RGBA_8888 = 2 */
+    uint8_t  padding0[100];     /* Offset 0x2C (44) .. 0x8F (143): 100 bytes reserved */
+    int32_t  src_x;             /* Offset 0x90 (144): source X */
+    int32_t  src_y;             /* Offset 0x94 (148): source Y */
+    uint8_t  padding_src[8];    /* Offset 0x98 (152) .. 0x9F (159): 8 bytes */
+    uint32_t src_w;             /* Offset 0xA0 (160): source width */
+    uint32_t src_h;             /* Offset 0xA4 (164): source height */
+    int32_t  dst_x;             /* Offset 0xA8 (168): destination X */
+    int32_t  dst_y;             /* Offset 0xAC (172): destination Y */
+    uint32_t dst_w;             /* Offset 0xB0 (176): destination width */
+    uint32_t dst_h;             /* Offset 0xB4 (180): destination height */
+    uint32_t extra0;            /* Offset 0xB8 (184): 0 */
+    uint32_t extra1;            /* Offset 0xBC (188): 0 */
+    uint8_t  padding1[8];       /* Offset 0xC0 (192) .. 0xC7 (199): 8 bytes padding (Total: 200 bytes) */
+};
+
+_Static_assert(sizeof(struct decon_win_config) == 200, "decon_win_config must be 200 bytes");
+
+struct decon_win_config_data {
+    int32_t                 fence;       /* Offset 0x000 (0)  : [OUT] Retire fence fd */
+    int32_t                 reserved;    /* Offset 0x004 (4)  : 0 */
+    struct decon_win_config config[5];   /* Offset 0x008 (8)  : 5 windows * 200 bytes = 1000 bytes */
+    uint8_t                 reserved2[32];/* Offset 0x3F0 (1008): 32 bytes tail padding -> Total 1040 bytes */
+};
+
+_Static_assert(sizeof(struct decon_win_config_data) == 1040, "decon_win_config_data must be 1040 bytes");
 
 struct decon_backend_config {
     uint32_t width;
@@ -99,6 +165,8 @@ struct decon_backend {
     void (*glClear)(uint32_t mask);
     void (*glFinish)(void);
     void (*glEGLImageTargetTexture2DOES)(uint32_t target, void *image);
+    /* Custom ioctl handler (NULL defaults to libc ioctl) */
+    int (*ioctl_fn)(int fd, unsigned long request, void *arg);
 };
 
 /* -------------------------------------------------------------------------
@@ -107,6 +175,8 @@ struct decon_backend {
 
 struct decon_backend *decon_backend_init(const struct decon_backend_config *cfg);
 int decon_backend_setup_egl(struct decon_backend *b, void *dl_handle);
+int decon_backend_setup_swapchain_ion(struct decon_backend *b, int map_cpu);
+int decon_backend_setup_swapchain_egl(struct decon_backend *b);
 int decon_backend_setup_swapchain(struct decon_backend *b);
 int decon_backend_begin_frame(struct decon_backend *b, uint32_t *active_fbo);
 int decon_backend_present(struct decon_backend *b, int *out_retire_fence);

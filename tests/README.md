@@ -16,6 +16,7 @@ This directory contains standalone, reproducible test harnesses designed to vali
 | `decon_flip_test.c` | `decon_flip_test` | Double-Buffered 60 FPS Swapchain | 2x ION DMA-BUF ping-pong swapchain, Mali GPU animated rendering, continuous DECON Window 3 page-flipping, retire fence synchronization, and 59.89 FPS benchmark. | Bionic `libc.so`, `libdl.so` |
 | `bionic_shim_test.c` | `bionic_shim_test` | Bionic-Musl Runtime Shim | Validates `libbionic_musl_shim.so` runtime: errno redirection, `_ctype_`, `__android_log_print`, `property_get/set`, FORTIFY checks, and ION memory wrappers. | Bionic `libc.so`, `libdl.so` |
 | `decon_compositor_test.c` | `decon_compositor_test` | Modular Wayland DECON Compositor | 120-frame simulated Wayland compositor presentation loop via `libdecon_backend.so`, multi-window compositing, and 59.34 FPS physical AMOLED benchmark. | Bionic `libc.so`, `libdl.so` |
+| `weston_backend_test.c` | `weston_backend_test` | Weston 14 Backend Unit Suite | 6-stage unit test harness for `backend-decon.so`: config validation, AMOLED head registration, swapchain creation, retire fence event loop integration, 10-frame VSYNC loop, and error recovery. | `libweston-14`, `libpixman-1`, `libwayland-server` |
 
 
 ---
@@ -410,7 +411,25 @@ adb shell "su -c 'stop surfaceflinger; stop vendor.hwcomposer-2-1; sleep 1; \
 
 ---
 
-## 9. Isolation & Non-Destructive Operation Guarantee
+## 9. `weston_backend_test`: Weston Direct-DECON Backend Unit Test Suite
+
+### Description
+`weston_backend_test.c` is an automated, self-contained unit test suite that validates the real Weston 14 backend (`backend-decon`) without requiring root access or physical display hardware:
+1. Validates configuration struct versioning, bounds checking, and default assignment.
+2. Verifies `weston_backend` registration, Samsung EA8076 Super AMOLED head creation, and monitor metadata (1080x2340@60Hz, 68x147mm).
+3. Verifies `weston_output` enable/disable lifecycle, double-buffered ION swapchain allocation, and Pixman renderbuffer creation via `create_image_from_ptr`.
+4. Tests presentation repaint dispatch to DECON Window 3 (`S3CFB_WIN_CONFIG_IOCTL`) and Wayland event loop hardware retire fence registration (`wl_event_loop_add_fd`).
+5. Simulates a continuous 10-frame VSYNC presentation loop, confirming alternating ping-pong buffer indices.
+6. Injects simulated DECON ioctl errors and verifies graceful error recovery.
+
+### Building & Running `weston_backend_test`
+```bash
+make -C tests run
+```
+
+---
+
+## 10. Isolation & Non-Destructive Operation Guarantee
 
 All test binaries operate under strict isolation constraints:
 - Executables are transferred solely to `/data/local/tmp/`.

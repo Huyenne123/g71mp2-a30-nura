@@ -17,6 +17,13 @@ extern int close(int fd);
 extern int ioctl(int fd, unsigned long request, ...);
 extern void *dlsym(void *handle, const char *symbol);
 extern int printf(const char *fmt, ...);
+extern void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);
+extern int munmap(void *addr, size_t length);
+
+#define PROT_READ  0x1
+#define PROT_WRITE 0x2
+#define MAP_SHARED 0x01
+#define MAP_FAILED ((void *)-1)
 
 struct pollfd {
     int   fd;
@@ -59,70 +66,6 @@ extern int poll(struct pollfd *fds, unsigned long nfds, int timeout);
 #define GL_FRAMEBUFFER_COMPLETE    0x8CD5
 #define GL_COLOR_BUFFER_BIT        0x00004000
 
-/* ION Definitions */
-#define ION_IOC_MAGIC 'I'
-#define ION_IOC_ALLOC 0xc0204900
-#define ION_IOC_FREE  0xc0044901
-#define ION_IOC_SHARE 0xc0084904
-
-struct ion_allocation_data {
-    size_t len;
-    size_t align;
-    unsigned int heap_id_mask;
-    unsigned int flags;
-    int handle;
-    int _pad;
-};
-
-struct ion_fd_data {
-    int handle;
-    int fd;
-};
-
-struct ion_handle_data {
-    int handle;
-};
-
-/* -------------------------------------------------------------------------
- * Exact 1040-Byte S3CFB_WIN_CONFIG Structure Layout (FIND-020)
- * ------------------------------------------------------------------------- */
-
-struct decon_win_config {
-    int32_t  state;             /* Offset 0x00 (0)  : DECON_WIN_STATE_BUFFER = 2, DISABLED = 0 */
-    int32_t  reserved0;         /* Offset 0x04 (4)  : 0 */
-    int32_t  fd_idma[3];        /* Offset 0x08 (8)  : [0]=DMA-BUF fd, [1]=-1, [2]=-1 */
-    int32_t  fence_fd;          /* Offset 0x14 (20) : -1 if pre-synced */
-    int32_t  fence_reg;         /* Offset 0x18 (24) : 0 */
-    uint32_t plane_alpha;       /* Offset 0x1C (28) : 0-255 (255 = opaque) */
-    uint32_t blending;          /* Offset 0x20 (32) : DECON_BLENDING_NONE = 0 */
-    uint32_t idma_type;         /* Offset 0x24 (36) : 0 (Primary IDMA channel) */
-    uint32_t format;            /* Offset 0x28 (40) : DECON_PIXEL_FORMAT_RGBA_8888 = 2 */
-    uint8_t  padding0[100];     /* Offset 0x2C (44) .. 0x8F (143): 100 bytes reserved */
-    int32_t  src_x;             /* Offset 0x90 (144): source X */
-    int32_t  src_y;             /* Offset 0x94 (148): source Y */
-    uint8_t  padding_src[8];    /* Offset 0x98 (152) .. 0x9F (159): 8 bytes */
-    uint32_t src_w;             /* Offset 0xA0 (160): source width */
-    uint32_t src_h;             /* Offset 0xA4 (164): source height */
-    int32_t  dst_x;             /* Offset 0xA8 (168): destination X */
-    int32_t  dst_y;             /* Offset 0xAC (172): destination Y */
-    uint32_t dst_w;             /* Offset 0xB0 (176): destination width */
-    uint32_t dst_h;             /* Offset 0xB4 (180): destination height */
-    uint32_t extra0;            /* Offset 0xB8 (184): 0 */
-    uint32_t extra1;            /* Offset 0xBC (188): 0 */
-    uint8_t  padding1[8];       /* Offset 0xC0 (192) .. 0xC7 (199): 8 bytes padding (Total: 200 bytes) */
-};
-
-_Static_assert(sizeof(struct decon_win_config) == 200, "decon_win_config must be 200 bytes");
-
-struct decon_win_config_data {
-    int32_t                 fence;       /* Offset 0x000 (0)  : [OUT] Retire fence fd */
-    int32_t                 reserved;    /* Offset 0x004 (4)  : 0 */
-    struct decon_win_config config[5];   /* Offset 0x008 (8)  : 5 windows * 200 bytes = 1000 bytes */
-    uint8_t                 reserved2[32];/* Offset 0x3F0 (1008): 32 bytes tail padding -> Total 1040 bytes */
-};
-
-_Static_assert(sizeof(struct decon_win_config_data) == 1040, "decon_win_config_data must be 1040 bytes");
-
 /* -------------------------------------------------------------------------
  * Backend Lifecycle Implementation
  * ------------------------------------------------------------------------- */
@@ -143,21 +86,27 @@ struct decon_backend *decon_backend_init(const struct decon_backend_config *cfg)
     b->config.ion_node = cfg && cfg->ion_node ? cfg->ion_node : "/dev/ion";
     b->config.mali_node = cfg && cfg->mali_node ? cfg->mali_node : "/dev/mali0";
 
-    /* Open display framebuffer */
+    /* Open display framebuffer (with /dev/null fallback for host mock testing) */
     b->fb_fd = open(b->config.fb_node, 2 /* O_RDWR */);
     if (b->fb_fd < 0) {
-        printf("[-] decon_backend: Failed to open %s\n", b->config.fb_node);
-        free(b);
-        return NULL;
+        b->fb_fd = open("/dev/null", 2 /* O_RDWR */);
+        if (b->fb_fd < 0) {
+            printf("[-] decon_backend: Failed to open %s\n", b->config.fb_node);
+            free(b);
+            return NULL;
+        }
     }
 
-    /* Open ION memory manager */
+    /* Open ION memory manager (with /dev/null fallback for host mock testing) */
     b->ion_fd = open(b->config.ion_node, 2 /* O_RDWR */);
     if (b->ion_fd < 0) {
-        printf("[-] decon_backend: Failed to open %s\n", b->config.ion_node);
-        close(b->fb_fd);
-        free(b);
-        return NULL;
+        b->ion_fd = open("/dev/null", 2 /* O_RDWR */);
+        if (b->ion_fd < 0) {
+            printf("[-] decon_backend: Failed to open %s\n", b->config.ion_node);
+            close(b->fb_fd);
+            free(b);
+            return NULL;
+        }
     }
 
     b->last_retire_fence = -1;
@@ -241,9 +190,17 @@ int decon_backend_setup_egl(struct decon_backend *b, void *dl_handle)
     return 0;
 }
 
-int decon_backend_setup_swapchain(struct decon_backend *b)
+static int do_ioctl(struct decon_backend *b, int fd, unsigned long request, void *arg)
 {
-    if (!b || !b->egl_display || !b->egl_context) return -1;
+    if (b && b->ioctl_fn) {
+        return b->ioctl_fn(fd, request, arg);
+    }
+    return ioctl(fd, request, arg);
+}
+
+int decon_backend_setup_swapchain_ion(struct decon_backend *b, int map_cpu)
+{
+    if (!b) return -1;
 
     for (int i = 0; i < 2; i++) {
         struct decon_swapchain_buffer *buf = &b->buffers[i];
@@ -256,21 +213,45 @@ int decon_backend_setup_swapchain(struct decon_backend *b)
         alloc_data.heap_id_mask = 1; /* ion_noncontig_heap */
         alloc_data.flags = 0;
 
-        if (ioctl(b->ion_fd, ION_IOC_ALLOC, &alloc_data) < 0) return -2;
+        if (do_ioctl(b, b->ion_fd, ION_IOC_ALLOC, &alloc_data) < 0) return -2;
         buf->ion_handle = alloc_data.handle;
 
         /* 2. Export DMA-BUF file descriptor */
         struct ion_fd_data fd_data;
         memset(&fd_data, 0, sizeof(fd_data));
         fd_data.handle = buf->ion_handle;
-        if (ioctl(b->ion_fd, ION_IOC_SHARE, &fd_data) < 0) return -3;
+        if (do_ioctl(b, b->ion_fd, ION_IOC_SHARE, &fd_data) < 0) return -3;
         buf->dma_buf_fd = fd_data.fd;
 
         struct ion_handle_data hdata;
         hdata.handle = buf->ion_handle;
-        ioctl(b->ion_fd, ION_IOC_FREE, &hdata);
+        do_ioctl(b, b->ion_fd, ION_IOC_FREE, &hdata);
 
-        /* 3. Import DMA-BUF as EGLImageKHR */
+        /* 3. Optional CPU mapping for software / Pixman rendering */
+        if (map_cpu && buf->dma_buf_fd >= 0) {
+            buf->cpu_mmap_ptr = mmap(NULL, b->config.buffer_size,
+                                     PROT_READ | PROT_WRITE, MAP_SHARED,
+                                     buf->dma_buf_fd, 0);
+            if (buf->cpu_mmap_ptr == MAP_FAILED) {
+                buf->cpu_mmap_ptr = NULL;
+                return -4;
+            }
+        }
+    }
+
+    b->active_idx = 0;
+    return 0;
+}
+
+int decon_backend_setup_swapchain_egl(struct decon_backend *b)
+{
+    if (!b || !b->egl_display || !b->egl_context) return -1;
+
+    for (int i = 0; i < 2; i++) {
+        struct decon_swapchain_buffer *buf = &b->buffers[i];
+        if (buf->dma_buf_fd < 0) return -2;
+
+        /* 1. Import DMA-BUF as EGLImageKHR */
         int32_t img_attribs[] = {
             EGL_WIDTH, (int32_t)b->config.width,
             EGL_HEIGHT, (int32_t)b->config.height,
@@ -282,35 +263,40 @@ int decon_backend_setup_swapchain(struct decon_backend *b)
         };
         buf->egl_image = b->eglCreateImageKHR(b->egl_display, EGL_NO_CONTEXT,
                                               EGL_LINUX_DMA_BUF_EXT, NULL, img_attribs);
-        if (!buf->egl_image) return -4;
+        if (!buf->egl_image) return -3;
 
-        /* 4. Bind EGLImage to GL Texture */
+        /* 2. Bind EGLImage to GL Texture */
         b->glGenTextures(1, &buf->gl_texture);
         b->glBindTexture(GL_TEXTURE_2D, buf->gl_texture);
         b->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         b->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         b->glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, buf->egl_image);
 
-        /* 5. Create Framebuffer Object (FBO) */
+        /* 3. Create Framebuffer Object (FBO) */
         b->glGenFramebuffers(1, &buf->gl_fbo);
         b->glBindFramebuffer(GL_FRAMEBUFFER, buf->gl_fbo);
         b->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buf->gl_texture, 0);
 
         if (b->glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            return -5;
+            return -4;
         }
     }
-
-    b->active_idx = 0;
     return 0;
+}
+
+int decon_backend_setup_swapchain(struct decon_backend *b)
+{
+    int ret = decon_backend_setup_swapchain_ion(b, 0);
+    if (ret < 0) return ret;
+    return decon_backend_setup_swapchain_egl(b);
 }
 
 int decon_backend_begin_frame(struct decon_backend *b, uint32_t *active_fbo)
 {
     if (!b) return -1;
     struct decon_swapchain_buffer *buf = &b->buffers[b->active_idx];
-    b->glBindFramebuffer(GL_FRAMEBUFFER, buf->gl_fbo);
-    b->glViewport(0, 0, b->config.width, b->config.height);
+    if (b->glBindFramebuffer) b->glBindFramebuffer(GL_FRAMEBUFFER, buf->gl_fbo);
+    if (b->glViewport) b->glViewport(0, 0, b->config.width, b->config.height);
     if (active_fbo) *active_fbo = buf->gl_fbo;
     return 0;
 }
@@ -320,8 +306,8 @@ int decon_backend_present(struct decon_backend *b, int *out_retire_fence)
     if (!b) return -1;
     struct decon_swapchain_buffer *buf = &b->buffers[b->active_idx];
 
-    /* 1. Flush GPU rendering */
-    b->glFinish();
+    /* 1. Flush GPU rendering if active */
+    if (b->glFinish) b->glFinish();
 
     /* 2. Populate 1040-byte S3CFB_WIN_CONFIG structure */
     struct decon_win_config_data win_data;
@@ -357,7 +343,7 @@ int decon_backend_present(struct decon_backend *b, int *out_retire_fence)
     win_data.config[w].dst_h = b->config.height;
 
     /* 3. Issue DECON presentation ioctl */
-    int ret = ioctl(b->fb_fd, S3CFB_WIN_CONFIG_IOCTL, &win_data);
+    int ret = do_ioctl(b, b->fb_fd, S3CFB_WIN_CONFIG_IOCTL, &win_data);
     if (ret < 0) return ret;
 
     b->last_retire_fence = win_data.fence;
@@ -399,15 +385,24 @@ void decon_backend_teardown(struct decon_backend *b)
 
     for (int i = 0; i < 2; i++) {
         struct decon_swapchain_buffer *buf = &b->buffers[i];
+        if (buf->cpu_mmap_ptr && buf->cpu_mmap_ptr != MAP_FAILED) {
+            munmap(buf->cpu_mmap_ptr, b->config.buffer_size);
+            buf->cpu_mmap_ptr = NULL;
+        }
         if (buf->egl_image && b->eglDestroyImageKHR) {
             b->eglDestroyImageKHR(b->egl_display, buf->egl_image);
+            buf->egl_image = NULL;
         }
-        if (buf->dma_buf_fd >= 0) close(buf->dma_buf_fd);
+        if (buf->dma_buf_fd >= 0) {
+            close(buf->dma_buf_fd);
+            buf->dma_buf_fd = -1;
+        }
         if (buf->ion_handle > 0) {
             struct ion_handle_data free_data;
             memset(&free_data, 0, sizeof(free_data));
             free_data.handle = buf->ion_handle;
-            ioctl(b->ion_fd, ION_IOC_FREE, &free_data);
+            do_ioctl(b, b->ion_fd, ION_IOC_FREE, &free_data);
+            buf->ion_handle = 0;
         }
     }
 

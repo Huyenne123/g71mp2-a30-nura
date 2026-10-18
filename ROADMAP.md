@@ -135,9 +135,21 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 7: Real postmarketOS Weston Plugin & Libhybris / Panfrost Translation (Next)
-- [ ] Implement `libhybris` dynamic linker integration to bridge `libGLES_mali-64.so` with Linux musl/glibc.
-- [ ] Implement native Weston output plugin (`weston-backend-decon.so`) hooking `output->repaint` directly into `decon_backend_present()`.
+## Milestone 6B: Real Weston Direct-DECON Backend Implementation & Validation (Completed)
+- [x] Pin target compositor API to Weston 14.0.2 (`libweston-14`) matching Alpine Linux / postmarketOS edge/v3.20+.
+- [x] Refactor `src/compositor/decon_backend.c` into modular functional blocks: separate ION allocation, CPU `mmap()`, optional EGLImage binding, and add injectable `ioctl_fn` function pointer for deterministic mock verification.
+- [x] Implement complete Weston 14 backend module (`src/weston/backend-decon/decon-backend.so`) exporting `weston_backend_init`, `decon_output_create`, head/monitor topology registration with Samsung EA8076 Super AMOLED metadata (1080x2340@60Hz, 68x147mm), Pixman renderbuffer creation via `create_image_from_ptr`, and DECON Window 3 presentation dispatch (`FIND-032`).
+- [x] Integrate DECON hardware retire fences with Wayland's main event loop (`wl_event_loop_add_fd`), replacing synchronous polling with asynchronous VSYNC-aligned presentation feedback (`FIND-033`).
+- [x] Implement comprehensive 6-stage unit test harness (`tests/weston_backend_test.c`) validating configuration validation, head registration, output enable/disable lifecycle, presentation repaint, multi-frame loop, and error recovery (100% pass rate).
+- [x] Re-verify underlying presentation engine on physical hardware (`R58M41M451D`), confirming steady-state 60 Hz cadence with sub-0.2 ms jitter and safe SurfaceFlinger recovery.
+- [x] Create Alpine Linux / postmarketOS package recipe (`packaging/APKBUILD.weston-backend-decon`) and packaging documentation.
+- [x] Deliver Milestone 6B technical report: `analysis/milestone-6b-weston-backend.md`.
+
+---
+
+## Milestone 7: postmarketOS Weston Integration & Libhybris / Panfrost Translation (Next)
+- [ ] Implement `libhybris` dynamic linker integration to bridge proprietary `libGLES_mali-64.so` with Linux musl/glibc.
+- [ ] Deploy `weston-backend-decon` package to a physical postmarketOS rootfs and test native graphical session under musl.
 - [ ] Boot into full postmarketOS graphical desktop environment (e.g. Phosh, Sxmo, or Weston) on Galaxy A30 with hardware acceleration.
 - [ ] (Path B): Implement `pan_kmod_kbase.c` userspace kernel translation prototype inside Mesa Panfrost to translate DRM Panfrost ioctls to Kbase UK 11.27 atoms on downstream Linux 4.4.
 
