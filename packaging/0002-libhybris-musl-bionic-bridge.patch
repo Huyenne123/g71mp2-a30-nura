@@ -798,6 +798,42 @@ index 138eb94..73bc630 100644
  #include <string>
  #include <vector>
  
+diff --git a/hybris/egl/egl.c b/hybris/egl/egl.c
+index 0051d37..4e3db26 100644
+--- a/hybris/egl/egl.c
++++ b/hybris/egl/egl.c
+@@ -158,6 +158,19 @@ void _addMapping(struct _EGLDisplay *display_id)
+ 	}
+ }
+ 
++static void _removeMapping(struct _EGLDisplay *display_id)
++{
++	int i;
++	for (i = 0; i < _EGL_MAX_DISPLAYS; i++)
++	{
++		if (_displayMappings[i] == display_id)
++		{
++			_displayMappings[i] = NULL;
++			return;
++		}
++	}
++}
++
+ struct _EGLDisplay *hybris_egl_display_get_mapping(EGLDisplay display)
+ {
+ 	int i;
+@@ -304,7 +317,10 @@ EGLBoolean eglTerminate(EGLDisplay dpy)
+ 	HYBRIS_DLSYSM(egl, &_eglTerminate, "eglTerminate");
+ 
+ 	struct _EGLDisplay *display = hybris_egl_display_get_mapping(dpy);
+-	ws_Terminate(display);
++	if (display) {
++		_removeMapping(display);
++		ws_Terminate(display);
++	}
+ 	return (*_eglTerminate)(dpy);
+ }
+ 
 diff --git a/hybris/gralloc/gralloc.c b/hybris/gralloc/gralloc.c
 index 973b247..2260b99 100644
 --- a/hybris/gralloc/gralloc.c

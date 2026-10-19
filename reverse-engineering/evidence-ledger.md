@@ -662,3 +662,55 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine`.
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
+
+---
+
+### FIND-044: EGL Display Mapping Lifecycle Defect & Double-Free Resolution
+- **Description**: An upstream lifecycle tracking defect in `libhybris` EGL display management was diagnosed and resolved under musl libc:
+  1. **Lifecycle Tracking**: In `hybris/egl/egl.c`, `_addMapping(dpy)` tracks active displays in `_displayMappings[]`.
+  2. **Dangling Pointer Generation**: When `eglTerminate(dpy)` was invoked, `ws_Terminate(display)` freed the `struct _EGLDisplay` object, but `_displayMappings[]` was never cleared.
+  3. **Use-After-Free & Double-Free**: On a subsequent `eglGetDisplay()` call, `hybris_egl_display_get_mapping()` scanned `_displayMappings[]` and returned the dangling pointer to the freed memory. When `eglTerminate()` was called a second time, `ws_Terminate()` called `free()` on the already-freed pointer, causing musl's memory allocator to abort with `a_crash()` at `src/internal/atomic.h:250`.
+  4. **Upstream Fix**: Added `_removeMapping(display)` in `hybris/egl/egl.c` and called it inside `eglTerminate()` prior to `ws_Terminate(display)`.
+  5. **Verification**: Executed 10 consecutive full cycles of `eglInitialize` -> Pbuffer creation -> context creation -> GLES rendering -> `glReadPixels` -> context teardown -> `eglTerminate` in `tests/test_bridge_audit.c` with zero faults or leaks.
+- **Supporting Evidence**:
+  - GDB backtrace identifying `a_crash()` -> `get_meta()` -> `__libc_free()` -> `ws_Terminate()` -> `eglTerminate()`.
+  - Reproduction test: `scratch/test_terminate.c` (crashed on cycle 2 terminate prior to fix; completed cleanly after fix).
+  - Test suite: `tests/test_bridge_audit.c` Test 5 (10 cycles passed with exit code 0).
+  - Patch: `packaging/0002-libhybris-musl-bionic-bridge.patch` updated with `hybris/egl/egl.c` fix.
+- **Source / Artifact**: `scratch/libhybris/hybris/egl/egl.c`, `packaging/0002-libhybris-musl-bionic-bridge.patch`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/data/alpine`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-045: Zero-Copy DECON Presentation Pipeline & GPU Acquire Fence Reclamation
+- **Description**: The physical end-to-end presentation path from ARM Mali-G71 OpenGL ES rendering to Samsung DECON hardware scanout was proven on physical hardware:
+  1. **Zero-Copy Pipeline Mechanics**:
+     - `HWCNativeWindowCreate` allocates 1080x2340 RGBA_8888 gralloc buffers from Exynos ION with 64-byte row alignment (stride=1088).
+     - `eglSwapBuffers()` renders directly via GPU into the ION DMA-BUF and invokes the present callback delivering the buffer and the GPU acquire sync fence FD (`HWCNativeBufferGetFence(buf)`).
+     - The shared ION DMA-BUF FD (`buf->handle->data[0]`) is mapped to DECON Window 3 / IDMA channel 0 (`win_data.config[3].fd_idma[0]`) via `S3CFB_WIN_CONFIG_IOCTL`.
+     - The GPU acquire fence FD is mapped to `win_data.config[3].fence_fd`. The display controller halts hardware scanout until the GPU finish signaling.
+  2. **Acquire Fence Reclamation**:
+     - In Linux `sync_fence`, passing `fence_fd` to `S3CFB_WIN_CONFIG_IOCTL` increments an internal kernel reference count, but **does not close the userspace file descriptor**.
+     - Initial soak testing revealed an FD growth of +606 FDs over 600 frames (+1 FD/frame).
+     - Adding `close(acquire_fence)` immediately after `ioctl()` completely resolved the leak, reducing FD delta to +6 (static triple-buffer pool FDs).
+  3. **Release & Retire Fence Lifecycle**:
+     - DECON driver returns a release fence for each window (`win_data.config[i].rel_fence`) and a composite retire fence (`win_data.fence`).
+     - All `rel_fence >= 0` are closed in userspace (`FIND-037`).
+     - The retire fence is duplicated and assigned to the buffer via `HWCNativeBufferSetFence(buf, dup(retire_fence))`, ensuring Mali does not overwrite the buffer until scanout completes.
+     - Presenter polls the retire fence to lock frame pacing to the physical 60 Hz VSYNC clock.
+  4. **Physical Telemetry Verification**:
+     - 10-minute presentation soak test executed at 59.96 FPS average cadence (35,978 frames over 600.00s).
+     - Physical panel VSYNC interrupts on IRQ 249 (`14860000.decon_f`) matched frame count 1:1 (+36,006 IRQs).
+     - Physical GPU interrupts on GIC 190 and GIC 191 incremented steadily (+194,753 IRQs) with zero CPU blitting.
+     - Memory RSS remained flat (Delta: +1,640 KB static library cache) with zero open file descriptor leakage (constant at 20 FDs).
+- **Supporting Evidence**:
+  - Test binary: `tests/mali_decon_e2e_test.c` executed on physical device.
+  - Telemetry: `/proc/interrupts` (IRQ 249, GIC 190, GIC 191), `/proc/self/statm`, `/proc/self/fd`.
+  - Report: `analysis/milestone-7c-gpu-decon-test.md`.
+- **Source / Artifact**: `tests/mali_decon_e2e_test.c`, `analysis/milestone-7c-gpu-decon-test.md`.
+- **Location**: Samsung Galaxy A30 hardware (`R58M41M451D`), `/dev/graphics/fb0`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
