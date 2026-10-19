@@ -280,7 +280,7 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
   - Rendered animated GLES geometry directly into Gralloc ION DMA-BUFs (1080x2340 stride 1088).
   - Submitted frames directly to DECON Window 3 / IDMA channel 0 via `S3CFB_WIN_CONFIG_IOCTL` without any CPU blitting.
   - Consumed GPU acquire fence before scanout; fed composite retire fence back to Gralloc to guard buffer reuse.
-  - Executed continuous 10-minute presentation soak test at an exact **59.98 FPS** average cadence.
+  - Executed continuous 10-minute presentation soak test at an exact **59.96 FPS** average cadence (35,978 frames over 600.00s).
   - Recorded 1:1 correlation with physical panel VSYNC interrupts on IRQ 249 (`14860000.decon_f`).
   - Recorded continuous physical Mali GPU interrupts on GIC 190/191.
   - Verified flat memory RSS (24.2 MB) and flat open file descriptors (20) with zero resource leaks.
