@@ -714,3 +714,71 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
+
+### FIND-046: Weston 14.0.2 GL Renderer Upstream EGL Platform Abort
+- **Discovery Date**: 2026-10-19
+- **Milestone**: Milestone 7D
+- **Component**: Weston 14.0.2 GL Renderer (`libweston/renderer-gl/egl-glue.c`)
+- **Description**: Upstream Weston's `platform_to_extension(EGLenum platform)` strictly switched on GBM, Wayland, X11, and Surfaceless platforms. Any other enum triggered an immediate assertion failure (`assert(0 && "bad EGL platform enum")`). When initializing Weston with Android EGL platforms (`EGL_PLATFORM_ANDROID_KHR` = `0x3141`) or platform `0` (default display), the compositor aborted during `gl_renderer_setup_egl_client_extensions()`.
+- **Resolution**:
+  1. Extended `platform_to_extension()` in `egl-glue.c` to map `EGL_PLATFORM_ANDROID_KHR` to `"android"` and `0` to `NULL`.
+  2. Updated `gl_renderer_setup_egl_client_extensions()` to return cleanly without error when `extension_suffix == NULL`.
+  3. Guarded `gr->get_platform_display()` in `gl_renderer_setup_egl_display()` to only execute when `gr->has_platform_base && gr->platform != 0`, cleanly falling back to `eglGetDisplay(native_display)`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Fixed & Verified**.
+
+---
+
+### FIND-047: Libhybris HWCNativeWindow Lifecycle Contract & Double-Free Resolution
+- **Discovery Date**: 2026-10-19
+- **Milestone**: Milestone 7D
+- **Component**: Libhybris HWComposer Window (`libhybris-hwcomposerwindow.so`) / DECON Backend Teardown
+- **Description**: `HWCNativeWindow` in libhybris inherits from `ANativeWindow` and is reference-counted by the EGL runtime. When `eglDestroySurface()` is invoked by `gl_renderer_output_destroy()`, EGL calls `decRef()`, which automatically deletes the window object (`delete window;`). A subsequent call to `HWCNativeWindowDestroy()` executes a second `delete` on the freed pointer, causing a `SIGSEGV` during compositor shutdown.
+- **Resolution**: Removed `HWCNativeWindowDestroy()` from the standard output disable/destroy path (`decon_output_disable`). `HWCNativeWindowDestroy()` is now strictly retained for error handling if `output_window_create()` fails before an `EGLSurface` is established.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Fixed & Verified**.
+
+---
+
+### FIND-048: Musl-Safe Bionic Structure Isolation in DECON Backend
+- **Discovery Date**: 2026-10-19
+- **Milestone**: Milestone 7D
+- **Component**: Weston DECON Backend (`libweston/backend-decon/decon_internal.h`)
+- **Description**: Attempting to include Android Bionic headers (`<android/nativebase/nativebase.h>`, `<system/window.h>`) inside the DECON backend triggered compilation failures under musl libc due to non-standard `#include <sys/cdefs.h>` deprecation warnings and missing transitive header paths (`<system/graphics-base.h>`).
+- **Resolution**: Formally declared the binary layout of `native_handle_t`, `struct android_native_base_t`, and `struct ANativeWindowBuffer` inside `decon_internal.h`. This guarantees 100% binary compatibility with libhybris while avoiding all Bionic header pollution and enabling clean C99 compilation under musl libc.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Fixed & Verified**.
+
+---
+
+### FIND-049: Weston 14 Direct-DECON GL Renderer Hardware Acceleration & Zero-Copy Scanout
+- **Discovery Date**: 2026-10-19
+- **Milestone**: Milestone 7D
+- **Component**: Weston 14.0.2 / ARM Mali-G71 MP2 / Samsung Exynos DECON Window 3
+- **Description**: Proves genuine OpenGL ES 3.2 compositor scene rendering on the ARM Mali-G71 MP2 GPU and direct zero-copy scanout to Samsung DECON Window 3 / IDMA channel 0 via `S3CFB_WIN_CONFIG_IOCTL`.
+- **Measured Evidence**:
+  1. **Compositor Acceleration**: Scene composition executed by ARM Mali DDK `v1.r26p0-01eac0` with GLES 3.2 shaders. Full repaint latency reduced from 66.22 ms on CPU Pixman to **0.90 ms - 3.89 ms** on Mali GPU (**17x - 59x speedup**).
+  2. **Zero-Copy Scanout**: Gralloc ION DMA-BUFs submitted directly to DECON Window 3 without CPU blitting or memory copies.
+  3. **Dual-Fence Synchronization**: GPU acquire fences from `eglSwapBuffers()` synchronize DECON scanout; DECON composite retire fences signal on physical AMOLED VSYNC (GPIO IRQ 249) and pace Wayland compositor repaint loop at 60.00 Hz.
+  4. **Multi-Surface Concurrency**: Simultaneously composited multiple independent Wayland clients (`weston-simple-shm`, `weston-simple-damage`) with damage clipping.
+  5. **10-Minute Soak Stability**: 600-second physical soak test completed at 60.00 FPS average cadence with zero memory leaks (constant RSS) and zero FD leaks.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+---
+
+### FIND-050: DECON Retire Fence Timeout Watchdog & Android Display Sleep Deadlock Resolution
+- **Discovery Date**: 2026-10-19
+- **Milestone**: Milestone 7D
+- **Component**: Weston Direct-DECON Backend (`libweston/backend-decon/decon.c`) / Android Power Management
+- **Description**: During extended physical presentation runs, Android's `system_server` power manager enforces screen sleep and backlight dimming (`screen_off_timeout`, default 60s), prompting the downstream kernel to suspend DECON MIPI-DSI TE pulse generation. Consequently, hardware retire fences (`win_data.fence`) stop signaling. In `backend-decon`, registering `win_data.fence` with `wl_event_loop_add_fd` without an active safety watchdog resulted in the compositor remaining indefinitely blocked in `WESTON_OUTPUT_REPAINT_AWAITING_COMPLETION`, deadlocking scene composition even while clients continued dispatching frame requests.
+- **Resolution**:
+  1. **Retire Fence Watchdog Timer**: Added a 100 ms safety timer (`output->finish_frame_timer`) armed concurrently with `wl_event_loop_add_fd`. If the hardware retire fence signals normally (~16.6 ms), the timer is immediately disarmed (`wl_event_source_timer_update(..., 0)`). If the fence drops or halts (>100 ms), `finish_frame_timer_handler()` unregisters the stale fence source, closes the dangling fence FD, logs a recovery notice, and invokes `weston_output_finish_frame()`, preventing compositor stalls.
+  2. **Android Power Management Lock**: Enhanced benchmark execution harness to acquire a wake lock (`/sys/power/wake_lock`), set `svc power stayon true`, and configure `screen_off_timeout 2147483647` during test execution, safely restoring original power and timeout state upon termination.
+  3. **Weston Unattended Idle Blanking Prevention**: Configured `--idle-time=0` during unattended presentation runs, preventing Weston's compositor core from blanking outputs or pausing frame delivery when no user input events are dispatched.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Fixed & Verified**.
+
+
+

@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>
 
 #include <libweston/libweston.h>
 #include "backend.h"
@@ -50,6 +51,43 @@
 #ifdef BUILD_DECON_INPUT
 #include <libudev.h>
 #include "libinput-seat.h"
+#endif
+
+#ifdef ENABLE_DECON_GL
+#include <hybris/hwcomposerwindow/hwcomposer.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include "renderer-gl/gl-renderer.h"
+
+typedef struct native_handle {
+	int version;
+	int numFds;
+	int numInts;
+	int data[0];
+} native_handle_t;
+
+struct android_native_base_t {
+	int magic;
+	int version;
+	void *reserved[4];
+	void (*incRef)(struct android_native_base_t *base);
+	void (*decRef)(struct android_native_base_t *base);
+};
+
+struct ANativeWindowBuffer {
+	struct android_native_base_t common;
+	int width;
+	int height;
+	int stride;
+	int format;
+	int usage_deprecated;
+	uintptr_t layerCount;
+	void *reserved[1];
+	const native_handle_t *handle;
+	uint64_t usage;
+};
 #endif
 
 #define DECON_DEFAULT_OUTPUT_NAME "DECON-0"
@@ -76,6 +114,7 @@ struct weston_decon_backend {
 	struct wl_list output_list;
 	const struct pixel_format_info **formats;
 	unsigned int formats_count;
+	int fb_fd;
 #ifdef BUILD_DECON_INPUT
 	struct udev *udev;
 	struct udev_input input;
@@ -100,6 +139,13 @@ struct decon_output {
 	struct wl_event_source *finish_frame_timer;
 	struct wl_event_source *fence_source;
 	int current_retire_fence;
+
+#ifdef ENABLE_DECON_GL
+	struct ANativeWindow *native_window;
+#endif
+	bool is_gl_renderer;
+	uint32_t gl_repaint_count;
+	uint32_t pixman_repaint_count;
 };
 
 static inline struct weston_decon_backend *

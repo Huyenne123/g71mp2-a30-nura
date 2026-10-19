@@ -75,6 +75,11 @@ decon_fence_handler(int fd, uint32_t mask, void *data)
 		output->current_retire_fence = -1;
 	}
 
+	/* FIND-050: Disarm retire fence watchdog timer */
+	if (output->finish_frame_timer) {
+		wl_event_source_timer_update(output->finish_frame_timer, 0);
+	}
+
 	clock_gettime(CLOCK_MONOTONIC, &t_now);
 	double fence_interval_ms = 0.0;
 	if (g_t_last_fence.tv_sec > 0) {
@@ -93,10 +98,12 @@ decon_fence_handler(int fd, uint32_t mask, void *data)
 			   fence_count, fence_interval_ms, g_last_render_ms, g_last_present_ms, flags);
 	}
 
-	/* Toggle ping-pong active buffer index */
-	output->active_idx ^= 1;
-	if (output->engine)
-		output->engine->active_idx = output->active_idx;
+	/* Toggle ping-pong active buffer index for Pixman */
+	if (!output->is_gl_renderer) {
+		output->active_idx ^= 1;
+		if (output->engine)
+			output->engine->active_idx = output->active_idx;
+	}
 
 	return 0;
 }
@@ -107,12 +114,25 @@ finish_frame_timer_handler(void *data)
 	struct decon_output *output = data;
 	struct timespec ts;
 
+	/* FIND-050: Clean up stale fence source if watchdog fired */
+	if (output->fence_source) {
+		weston_log("[-] decon: Retire fence timeout (>100ms)! Recovering via watchdog\n");
+		wl_event_source_remove(output->fence_source);
+		output->fence_source = NULL;
+	}
+	if (output->current_retire_fence >= 0) {
+		close(output->current_retire_fence);
+		output->current_retire_fence = -1;
+	}
+
 	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
 	weston_output_finish_frame(&output->base, &ts, WP_PRESENTATION_FEEDBACK_INVALID);
 
-	output->active_idx ^= 1;
-	if (output->engine)
-		output->engine->active_idx = output->active_idx;
+	if (!output->is_gl_renderer) {
+		output->active_idx ^= 1;
+		if (output->engine)
+			output->engine->active_idx = output->active_idx;
+	}
 
 	return 0;
 }
@@ -127,6 +147,136 @@ decon_output_start_repaint_loop(struct weston_output *base)
 
 	return 0;
 }
+
+#ifdef ENABLE_DECON_GL
+#ifndef HAL_PIXEL_FORMAT_RGBA_8888
+#define HAL_PIXEL_FORMAT_RGBA_8888 1
+#endif
+
+static void
+decon_weston_gl_present_cb(void *user_data, struct ANativeWindow *window,
+                           struct ANativeWindowBuffer *buffer)
+{
+	struct decon_output *output = user_data;
+	int dma_buf_fd;
+	int acquire_fence;
+	struct decon_win_config_data win_data;
+	int fb_fd;
+	int ret;
+	int i;
+
+	(void)window;
+	assert(output);
+
+	if (!buffer || !buffer->handle) {
+		weston_log("[-] decon [GL]: Null buffer or buffer handle in present callback\n");
+		return;
+	}
+
+	dma_buf_fd = buffer->handle->data[0];
+	acquire_fence = HWCNativeBufferGetFence(buffer);
+	fb_fd = output->backend->fb_fd;
+
+	if (fb_fd < 0) {
+		weston_log("[-] decon [GL]: Invalid fb_fd in GL present callback\n");
+		if (acquire_fence >= 0)
+			close(acquire_fence);
+		return;
+	}
+
+	memset(&win_data, 0, sizeof(win_data));
+	win_data.fence = -1;
+
+	for (i = 0; i < 5; i++) {
+		win_data.config[i].state = 0;
+		win_data.config[i].fd_idma[0] = -1;
+		win_data.config[i].fd_idma[1] = -1;
+		win_data.config[i].fd_idma[2] = -1;
+		win_data.config[i].fence_fd = -1;
+		win_data.config[i].rel_fence = -1;
+	}
+
+	win_data.config[3].state = 2; /* DECON_WIN_STATE_BUFFER */
+	win_data.config[3].fd_idma[0] = dma_buf_fd;
+	win_data.config[3].fence_fd = acquire_fence;
+	win_data.config[3].plane_alpha = 255;
+	win_data.config[3].blending = 0;
+	win_data.config[3].idma_type = 0;
+	win_data.config[3].format = 2; /* HAL_PIXEL_FORMAT_RGBA_8888 */
+	win_data.config[3].src_x = 0;
+	win_data.config[3].src_y = 0;
+	win_data.config[3].src_w = output->mode.width;
+	win_data.config[3].src_h = output->mode.height;
+	win_data.config[3].dst_x = 0;
+	win_data.config[3].dst_y = 0;
+	win_data.config[3].dst_w = output->mode.width;
+	win_data.config[3].dst_h = output->mode.height;
+
+	ret = ioctl(fb_fd, S3CFB_WIN_CONFIG_IOCTL, &win_data);
+	if (ret < 0) {
+		weston_log("[-] decon [GL]: S3CFB_WIN_CONFIG ioctl failed: %s\n",
+			   strerror(errno));
+	}
+
+	/* FIND-045: Reclaim userspace acquire fence FD immediately */
+	if (acquire_fence >= 0) {
+		close(acquire_fence);
+	}
+
+	/* FIND-037: Reclaim release fence FDs */
+	for (i = 0; i < 5; i++) {
+		if (win_data.config[i].rel_fence >= 0) {
+			close(win_data.config[i].rel_fence);
+			win_data.config[i].rel_fence = -1;
+		}
+	}
+
+	/* Guard against stale retire fence */
+	if (output->fence_source) {
+		wl_event_source_remove(output->fence_source);
+		output->fence_source = NULL;
+	}
+	if (output->current_retire_fence >= 0) {
+		close(output->current_retire_fence);
+		output->current_retire_fence = -1;
+	}
+
+	/* Pass retire fence back to Gralloc to guard buffer reuse */
+	if (win_data.fence >= 0) {
+		HWCNativeBufferSetFence(buffer, dup(win_data.fence));
+
+		struct wl_event_loop *loop =
+			wl_display_get_event_loop(output->base.compositor->wl_display);
+
+		output->current_retire_fence = win_data.fence;
+		output->fence_source = wl_event_loop_add_fd(
+			loop,
+			win_data.fence,
+			WL_EVENT_READABLE,
+			decon_fence_handler,
+			output
+		);
+
+		if (!output->fence_source) {
+			weston_log("[-] decon [GL]: Failed to attach retire fence to event loop\n");
+			close(win_data.fence);
+			output->current_retire_fence = -1;
+			wl_event_source_timer_update(output->finish_frame_timer, 16);
+		} else {
+			/* FIND-050: Arm 100ms watchdog timer to prevent compositor freeze if fence drops */
+			wl_event_source_timer_update(output->finish_frame_timer, 100);
+		}
+	} else {
+		wl_event_source_timer_update(output->finish_frame_timer, 16);
+	}
+
+	output->gl_repaint_count++;
+	if (output->gl_repaint_count <= 5 || output->gl_repaint_count % 60 == 0) {
+		weston_log("[+] decon [GL]: Hardware frame #%u presented to DECON Window 3 (DMA-BUF FD %d, acquire fence %d, retire fence %d)\n",
+			   output->gl_repaint_count, dma_buf_fd, acquire_fence, win_data.fence);
+	}
+}
+#endif
 
 static int
 decon_output_repaint(struct weston_output *base)
@@ -144,6 +294,17 @@ decon_output_repaint(struct weston_output *base)
 
 	struct timespec t0, t1, t2;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
+
+#ifdef ENABLE_DECON_GL
+	if (output->is_gl_renderer) {
+		/* Repaint scene into EGL on-screen surface (fbo = 0) */
+		ec->renderer->repaint_output(base, &damage, NULL);
+		pixman_region32_fini(&damage);
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		g_last_render_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+		return 0;
+	}
+#endif
 
 	/* Repaint into active swapchain renderbuffer */
 	ec->renderer->repaint_output(base, &damage,
@@ -175,11 +336,10 @@ decon_output_repaint(struct weston_output *base)
 		g_last_render_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1000000.0;
 		g_last_present_ms = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_nsec - t1.tv_nsec) / 1000000.0;
 
-		static uint32_t repaint_count = 0;
-		repaint_count++;
-		if (repaint_count <= 5 || repaint_count % 60 == 0) {
-			weston_log("[+] decon: Hardware repaint #%u presented on buffer %u (fence fd %d, render: %.2f ms, present: %.2f ms)\n",
-				   repaint_count, output->active_idx, retire_fence, g_last_render_ms, g_last_present_ms);
+		output->pixman_repaint_count++;
+		if (output->pixman_repaint_count <= 5 || output->pixman_repaint_count % 60 == 0) {
+			weston_log("[+] decon [Pixman]: Repaint #%u presented on buffer %u (fence fd %d, render: %.2f ms, present: %.2f ms)\n",
+				   output->pixman_repaint_count, output->active_idx, retire_fence, g_last_render_ms, g_last_present_ms);
 		}
 	}
 
@@ -202,6 +362,9 @@ decon_output_repaint(struct weston_output *base)
 			close(retire_fence);
 			output->current_retire_fence = -1;
 			wl_event_source_timer_update(output->finish_frame_timer, 16);
+		} else {
+			/* FIND-050: Arm 100ms watchdog timer to prevent compositor freeze if fence drops */
+			wl_event_source_timer_update(output->finish_frame_timer, 100);
 		}
 	} else {
 		/* Fallback software timer for mock mode or software scanout */
@@ -243,8 +406,8 @@ decon_output_enable(struct weston_output *base)
 		return -1;
 	}
 
-	/* Initialize underlying hardware DECON engine and ION swapchain */
-	if (!b->config.mock_mode) {
+	/* Initialize underlying hardware DECON engine and ION swapchain for Pixman */
+	if (!b->config.mock_mode && b->compositor->renderer->type == WESTON_RENDERER_PIXMAN) {
 		struct decon_backend_config eng_cfg;
 		memset(&eng_cfg, 0, sizeof(eng_cfg));
 		eng_cfg.width = b->config.width;
@@ -278,6 +441,54 @@ decon_output_enable(struct weston_output *base)
 			}
 		}
 	}
+
+#ifdef ENABLE_DECON_GL
+	if (b->compositor->renderer->type == WESTON_RENDERER_GL) {
+		const struct gl_renderer_interface *gl = b->compositor->renderer->gl;
+		struct gl_renderer_output_options gl_options;
+
+		output->is_gl_renderer = true;
+
+		output->native_window = HWCNativeWindowCreate(
+			output->mode.width,
+			output->mode.height,
+			HAL_PIXEL_FORMAT_RGBA_8888,
+			decon_weston_gl_present_cb,
+			output
+		);
+
+		if (!output->native_window) {
+			weston_log("[-] decon [GL]: Failed to create HWCNativeWindow\n");
+			wl_event_source_remove(output->finish_frame_timer);
+			output->finish_frame_timer = NULL;
+			return -1;
+		}
+
+		memset(&gl_options, 0, sizeof(gl_options));
+		gl_options.window_for_legacy = (EGLNativeWindowType)output->native_window;
+		gl_options.window_for_platform = output->native_window;
+		gl_options.fb_size.width = output->mode.width;
+		gl_options.fb_size.height = output->mode.height;
+		gl_options.area.x = 0;
+		gl_options.area.y = 0;
+		gl_options.area.width = output->mode.width;
+		gl_options.area.height = output->mode.height;
+		gl_options.formats = b->formats;
+		gl_options.formats_count = b->formats_count;
+
+		if (gl->output_window_create(&output->base, &gl_options) < 0) {
+			weston_log("[-] decon [GL]: Failed to create GL output window surface\n");
+			HWCNativeWindowDestroy(output->native_window);
+			output->native_window = NULL;
+			wl_event_source_remove(output->finish_frame_timer);
+			output->finish_frame_timer = NULL;
+			return -1;
+		}
+
+		weston_log("[+] decon [GL]: Successfully initialized GL output surface (%dx%d) on HWCNativeWindow\n",
+			   output->mode.width, output->mode.height);
+	}
+#endif
 
 	/* Create Pixman renderbuffers */
 	if (b->compositor->renderer->type == WESTON_RENDERER_PIXMAN) {
@@ -379,7 +590,14 @@ decon_output_disable(struct weston_output *base)
 		}
 	}
 
-	if (ec->renderer && ec->renderer->pixman)
+#ifdef ENABLE_DECON_GL
+	if (output->is_gl_renderer && ec->renderer && ec->renderer->gl) {
+		ec->renderer->gl->output_destroy(&output->base);
+		output->native_window = NULL;
+	}
+#endif
+
+	if (!output->is_gl_renderer && ec->renderer && ec->renderer->pixman)
 		ec->renderer->pixman->output_destroy(&output->base);
 
 	if (output->engine) {
@@ -521,6 +739,11 @@ decon_backend_destroy(struct weston_backend *backend)
 	}
 #endif
 
+	if (b->fb_fd >= 0) {
+		close(b->fb_fd);
+		b->fb_fd = -1;
+	}
+
 	if (b->formats) {
 		free(b->formats);
 		b->formats = NULL;
@@ -532,6 +755,12 @@ decon_backend_destroy(struct weston_backend *backend)
 #ifdef BUILD_DECON_INPUT
 #include <fcntl.h>
 /* Direct embedded device opener when running without a session launcher / seatd */
+int
+weston_launcher_open(struct weston_launcher *launcher,
+		     const char *path, int flags);
+void
+weston_launcher_close(struct weston_launcher *launcher, int fd);
+
 WL_EXPORT int
 weston_launcher_open(struct weston_launcher *launcher,
 		     const char *path, int flags)
@@ -571,6 +800,18 @@ decon_backend_create(struct weston_compositor *compositor,
 	b->formats_count = ARRAY_LENGTH(decon_formats);
 	b->formats = pixel_format_get_array(decon_formats, b->formats_count);
 
+	b->fb_fd = -1;
+	if (!config->mock_mode) {
+		b->fb_fd = open(config->fb_dev, O_RDWR | O_CLOEXEC);
+		if (b->fb_fd < 0) {
+			weston_log("[-] decon: Failed to open %s: %s\n",
+				   config->fb_dev, strerror(errno));
+			goto err_free;
+		}
+		weston_log("[+] decon: Successfully opened %s (fd %d)\n",
+			   config->fb_dev, b->fb_fd);
+	}
+
 	/* Initialize compositor renderer if not already active */
 	if (!compositor->renderer) {
 		switch (config->renderer_type) {
@@ -581,10 +822,32 @@ decon_backend_create(struct weston_compositor *compositor,
 							      NULL);
 			break;
 		case WESTON_RENDERER_GL:
-			weston_log("[-] decon: GL renderer requested. Note: proprietary GLES requires Bionic/libhybris.\n");
+#ifdef ENABLE_DECON_GL
+			weston_log("[+] decon: Initializing GL renderer with Mali GLES / libhybris\n");
+			{
+				struct gl_renderer_display_options gl_options = {
+					.egl_platform = 0,
+					.egl_native_display = EGL_DEFAULT_DISPLAY,
+					.egl_surface_type = EGL_WINDOW_BIT,
+					.formats = b->formats,
+					.formats_count = b->formats_count,
+				};
+				ret = weston_compositor_init_renderer(compositor,
+								      WESTON_RENDERER_GL,
+								      &gl_options.base);
+				if (ret < 0) {
+					weston_log("[-] decon: GL renderer initialization failed, falling back to Pixman\n");
+					ret = weston_compositor_init_renderer(compositor,
+									      WESTON_RENDERER_PIXMAN,
+									      NULL);
+				}
+			}
+#else
+			weston_log("[-] decon: GL renderer requested but not built into backend, falling back to Pixman\n");
 			ret = weston_compositor_init_renderer(compositor,
-							      WESTON_RENDERER_GL,
+							      WESTON_RENDERER_PIXMAN,
 							      NULL);
+#endif
 			break;
 		case WESTON_RENDERER_NOOP:
 			ret = noop_renderer_init(compositor);
@@ -625,6 +888,10 @@ decon_backend_create(struct weston_compositor *compositor,
 	return b;
 
 err_free:
+	if (b->fb_fd >= 0) {
+		close(b->fb_fd);
+		b->fb_fd = -1;
+	}
 	if (b->formats)
 		free(b->formats);
 	wl_list_remove(&b->base.link);

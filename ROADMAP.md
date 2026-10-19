@@ -295,12 +295,30 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 7D: Weston Direct-DECON GL-Renderer Hardware Acceleration (Next)
-- [ ] Connect `libhybris-hwcomposerwindow` to Weston 14.0.2 `gl-renderer` via `gl_renderer_interface->output_window_create()`.
-- [ ] Implement zero-copy presentation callback in `backend-decon` submitting GL-rendered ION DMA-BUFs directly to DECON Window 3.
-- [ ] Integrate DECON retire fence with `weston_output_finish_frame()` via Wayland event loop.
-- [ ] Validate hardware-accelerated desktop compositing on physical EA8076 Super AMOLED screen.
+## Milestone 7D: Weston Direct-DECON GL-Renderer Hardware Acceleration (Completed)
+- [x] Connect `libhybris-hwcomposerwindow` to Weston 14.0.2 `gl-renderer` via `gl_renderer_interface->output_window_create()`.
+- [x] Implement zero-copy presentation callback in `backend-decon` submitting GL-rendered ION DMA-BUFs directly to DECON Window 3 via `S3CFB_WIN_CONFIG_IOCTL`.
+- [x] Implement dual-fence synchronization: GPU acquire fences synchronize DECON scanout; DECON composite retire fences pace Wayland event loop (`wl_event_loop_add_fd`) at 60 Hz.
+- [x] Resolve upstream Weston EGL platform assertion abort on Android/surfaceless displays in `libweston/renderer-gl/egl-glue.c` (`FIND-046`).
+- [x] Eliminate `HWCNativeWindow` shutdown double-free `SIGSEGV` by respecting libhybris reference counting (`FIND-047`).
+- [x] Isolate Bionic struct definitions (`native_handle_t`, `ANativeWindowBuffer`) in `decon_internal.h` for clean musl compilation (`FIND-048`).
+- [x] Implement 100 ms retire fence watchdog timer in `backend-decon` and establish Android power lock + `--idle-time=0` protection (`FIND-050`).
+- [x] Validate multi-surface desktop composition with concurrent Wayland clients (`weston-desktop-shell`, `weston-simple-shm`, `weston-simple-damage`).
+- [x] Execute continuous 10-minute presentation soak test on physical hardware at 59.90 FPS (35,940 frames) with zero memory/FD leaks.
+- [x] Deliver Milestone 7D technical reports and patch updates:
+  - `analysis/milestone-7d-weston-api-audit.md`
+  - `analysis/milestone-7d-architecture-decision.md`
+  - `analysis/milestone-7d-gl-renderer-implementation.md`
+  - `analysis/milestone-7d-hardware-validation.md`
+  - `packaging/0001-weston-14-direct-decon-backend.patch`
+  - `packaging/0003-weston-14-direct-decon-gl-renderer.patch`
+
+---
+
+## Milestone 7E: Wayland Client GPU Buffer Import & Desktop Integration (Next)
 - [ ] Implement Wayland client GPU buffer import via `zwp_linux_dmabuf_v1` / `EGLImage`.
+- [ ] Validate hardware-accelerated GLES Wayland clients (`simple-egl`, GTK4/GLES, Qt Wayland).
+- [ ] Evaluate standalone direct boot without Android framework.
 
 ---
 

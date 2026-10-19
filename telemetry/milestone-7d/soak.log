@@ -1,0 +1,42 @@
+=================================================================
+   Milestone 7D: Weston 14 Direct-DECON GL Renderer Soak Test    
+=================================================================
+Target: Samsung Galaxy A30 (SM-A305F) / Exynos 7904 / Mali-G71 MP2
+Display: EA8076 Super AMOLED (1080x2340 @ 60 Hz)
+Target Duration: 600 seconds (10 minutes)
+Start Date: Mon Oct 19 21:42:58 +07 2026
+[*] Acquiring wake lock and disabling screen timeout...
+[*] Initial DECON VSYNC IRQ (249): 78586
+[*] Initial Mali GPU IRQ (GIC 190/191): 506413
+[*] Stopping Android SurfaceFlinger and HWC2...
+[*] Launching Weston with GL renderer...
+[*] Detected Weston PID: 23426
+[*] Launching animated client (weston-simple-shm)...
+[*] Detected Client PID: 23459
+
+| Elapsed Time | Frame Count | Instantaneous FPS | GPU IRQ Delta | Panel VSYNC Delta | Compositor RSS | Open FDs |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 60s | 3660 | 61.00 FPS | +18845 | +3729 | 90104 KB | 47 |
+| 121s | 7260 | 59.02 FPS | +37179 | +7344 | 90104 KB | 47 |
+| 181s | 10800 | 59.00 FPS | +55286 | +10957 | 90104 KB | 47 |
+| 241s | 14340 | 59.00 FPS | +73352 | +14569 | 90104 KB | 48 |
+| 302s | 17940 | 59.02 FPS | +91733 | +18181 | 90104 KB | 49 |
+| 362s | 21480 | 59.00 FPS | +109979 | +21795 | 90104 KB | 47 |
+| 422s | 25080 | 60.00 FPS | +128328 | +25411 | 90104 KB | 49 |
+| 482s | 28680 | 60.00 FPS | +146689 | +29028 | 90112 KB | 47 |
+| 543s | 32280 | 59.02 FPS | +165026 | +32644 | 90112 KB | 47 |
+| 603s | 35880 | 60.00 FPS | +184509 | +36261 | 90112 KB | 49 |
+
+[*] 600s Soak test completed! Stopping client and compositor cleanly...
+=================================================================
+   Milestone 7D Soak Test Final Telemetry Summary               
+=================================================================
+Total Elapsed Time            : 600.0 seconds
+Total Hardware Frames Composed: 35940
+Average Presentation Cadence  : 59.90 FPS
+Total DECON Panel VSYNC IRQs  : +36331
+Total Mali GPU Interrupts     : +184923
+End Date                      : Mon Oct 19 21:53:09 +07 2026
+=================================================================
+[*] Restoring Android power settings and display services...
+[*] Android display services successfully restored.
