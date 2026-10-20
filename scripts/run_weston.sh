@@ -5,14 +5,20 @@ BUNDLE_DIR="/opt/weston-decon"
 cleanup() {
     echo ""
     echo "[*] Restoring Sxmo desktop..."
-    pkill -KILL -f weston-simple 2>/dev/null || true
-    pkill -KILL -f weston 2>/dev/null || true
+    pkill -KILL -x weston-simple-egl 2>/dev/null || true
+    pkill -KILL -x weston-simple-touch 2>/dev/null || true
+    pkill -KILL -x weston-keyboard 2>/dev/null || true
+    pkill -KILL -x weston-desktop-shell 2>/dev/null || true
+    pkill -KILL -x weston 2>/dev/null || true
     rm -f /usr/lib/libweston-14 /usr/lib/weston /usr/lib/libhybris /usr/share/weston 2>/dev/null || true
-    pkill -CONT -f Xorg 2>/dev/null || true
-    pkill -CONT -f dwm 2>/dev/null || true
+    echo 1 > /sys/class/graphics/fb0/blank 2>/dev/null || true
+    sleep 0.1
+    echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null || true
+    pkill -CONT -x Xorg 2>/dev/null || true
+    pkill -CONT -x dwm 2>/dev/null || true
     pkill -CONT -f sxmo 2>/dev/null || true
     sleep 0.5
-    pkill -KILL -f lisgd 2>/dev/null || true
+    pkill -KILL -x lisgd 2>/dev/null || true
     DISPLAY=:0 XAUTHORITY=/home/user/.Xauthority doas -u user /usr/share/sxmo/default_hooks/sxmo_hook_lisgdstart.sh >/dev/null 2>&1 &
     echo "[+] Sxmo restored successfully."
 }
@@ -59,11 +65,11 @@ export HYBRIS_EGLPLATFORM="hwcomposer"
 export LIBEGL="/vendor/lib64/egl/libGLES_mali.so"
 export LIBGLESV2="/vendor/lib64/egl/libGLES_mali.so"
 
-# Launch 3D GPU demo and Touch demo as soon as Weston creates wayland-0
+# Launch Fullscreen GPU 3D rotating triangle demo as soon as Weston creates wayland-0
 (
     while [ ! -S /tmp/weston-runtime/wayland-0 ]; do sleep 0.2; done
     sleep 0.5
-    echo "[*] Auto-launching GPU 3D rotating triangle demo and multi-touch demo..."
+    echo "[*] Auto-launching Fullscreen GPU 3D rotating triangle demo..."
     export XDG_RUNTIME_DIR="/tmp/weston-runtime"
     export WAYLAND_DISPLAY="wayland-0"
     export LD_LIBRARY_PATH="/opt/weston-decon/usr/lib:/opt/weston-decon/usr/lib/weston:/usr/lib"
@@ -71,8 +77,7 @@ export LIBGLESV2="/vendor/lib64/egl/libGLES_mali.so"
     export EGL_PLATFORM="wayland"
     export LIBEGL="/vendor/lib64/egl/libGLES_mali.so"
     export LIBGLESV2="/vendor/lib64/egl/libGLES_mali.so"
-    /opt/weston-decon/usr/bin/weston-simple-egl >/dev/null 2>&1 &
-    /opt/weston-decon/usr/bin/weston-simple-touch >/dev/null 2>&1 &
+    /opt/weston-decon/usr/bin/weston-simple-egl -f >/tmp/demo.log 2>&1 &
 ) &
 
 echo "[*] Starting Weston 14 Direct-DECON GL compositor on physical AMOLED display..."
