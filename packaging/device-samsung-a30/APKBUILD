@@ -1,6 +1,6 @@
 # Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
 pkgname=device-samsung-a30
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=0
 pkgdesc="postmarketOS device configuration package for Samsung Galaxy A30 (SM-A305F)"
 url="https://postmarketos.org"
@@ -19,18 +19,22 @@ source="deviceinfo
 	weston.initd
 	99-mali-decon.rules
 	driver-payload.tar.gz
-	boot.img"
+	boot.img
+	kernel.release
+	kernel-patched.bin"
 subpackages=""
 options="!check !tracedeps !strip"
 
 sha512sums="
-36f933443c7a8db12c96ec2ea1cde0a704dd495dbf9ff36a101bc523a801ffc3021a6d2573a2bb66446119f1199d198a9a1619234c8f9fdf5dbec5a70c4e2892  deviceinfo
+be07fbed0100adcb3ad1f4d605b18fa0c4f3bcd5c3dbfdd45d16afda9e680c1c0b05cd3d8fda3edb17837925d5e9e986318778feb0bbc78d331ee6f7b55519fe  deviceinfo
 15af176427a71841e8c1d7660ec71d29f61dfda214d655d0a62de6c584ea468fe509453b4df3f0486a6ce04c4e64e22115189a7c68dfe376c5f4854e635c0e47  initfs-hook.sh
 a1fbd48f18236d352b4d1e4d31d3e1eab3e41dc25d42aa07ad1b71075fee110d4a741a4b0b4a630fe156b76b06b8e98583989cdc1f2562e709703f35cf79ff68  weston.ini
 208e40335ee3eb52194a96ee8d83c04ce4a8063ecbd02b088ff3fbfe2d3634756075468a45d43233bc3724cebfc14096b7c56a911ecfa814e2dbd7e8a518e46d  weston.initd
 0ce11336b955eae20e95190f7b8f82c25527f1dab189f923041c065444bc0aecea1a609b1ea9bff98f2dfc7f79a72f59e297a3a94dc4426ba8d6c520c5ad3104  99-mali-decon.rules
 9ce594a7e10f21210d056efd0b772f172ceabdedfa6479dba79d5b834b85aac53973155dd51978eb462289dc4807fe2daa7dc650066cff99592295c842fb66af  driver-payload.tar.gz
 7565d15c68f82984f66f5179260ea27805607e3f223be036bb70651579b4428cb5a24e6b61b780be2ced4e86ecdd53ab3d1f61483566940d32fd78ee2bc19298  boot.img
+33dda1642dd1fce0372f494cef4712cb6601ce8488caaf5015da8f539c4f19d230315734e40a9de534fb46f3c27a0796b0198a5969415d1ded6aa34d68a5359d  kernel.release
+94e9f62303df258a6f32027f3ed67b270f427d820929efef10f68264a678588d2c56bc7f70cba276b62c5d19ac15ae7b9f73813e0ce5e89793744b1817cf6730  kernel-patched.bin
 "
 
 package() {
@@ -53,6 +57,16 @@ package() {
 	# Install udev hardware rules
 	install -Dm644 "$srcdir"/99-mali-decon.rules \
 		"$pkgdir"/usr/lib/udev/rules.d/99-mali-decon.rules
+
+	# Kernel metadata for postmarketos-mkinitfs
+	install -Dm644 "$srcdir"/kernel.release \
+		"$pkgdir"/usr/share/kernel/samsung-a30/kernel.release
+	install -Dm644 "$srcdir"/kernel-patched.bin \
+		"$pkgdir"/boot/vmlinuz
+	install -Dm644 "$srcdir"/kernel-patched.bin \
+		"$pkgdir"/boot/vmlinuz-samsung-a30
+	mkdir -p "$pkgdir"/lib/modules/4.4.302-samsung-a30
+	touch "$pkgdir"/lib/modules/4.4.302-samsung-a30/modules.dep
 
 	# Unpack prebuilt driver payload (libhybris, weston-decon, gl-renderer)
 	mkdir -p "$pkgdir"/usr
