@@ -1,0 +1,16 @@
+# 99-mali-decon.rules - Hardware permissions and seat tagging for Samsung Galaxy A30
+
+# Graphics & Display Controller
+KERNEL=="fb[0-9]*", SUBSYSTEM=="graphics", MODE="0666"
+KERNEL=="ion", MODE="0666"
+KERNEL=="mali[0-9]*", MODE="0666"
+KERNEL=="sync", MODE="0666"
+
+# DECON Framebuffer character device
+DEVPATH=="/devices/platform/14860000.decon_f/graphics/fb0", MODE="0666", TAG+="seat"
+
+# Capacitive Touchscreen (Melfas MMS400 on I2C 11-0048)
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{name}=="sec_touchscreen", ENV{ID_INPUT}="1", ENV{ID_INPUT_TOUCHSCREEN}="1", ENV{WL_OUTPUT}="DECON-0", TAG+="seat"
+
+# Hardware Keys (Volume Up, Volume Down, Power)
+KERNEL=="event*", SUBSYSTEM=="input", ATTRS{name}=="gpio_keys", ENV{ID_INPUT}="1", ENV{ID_INPUT_KEYBOARD}="1", TAG+="seat"

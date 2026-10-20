@@ -1,0 +1,43 @@
+# Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
+pkgname=device-samsung-a30
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="postmarketOS device configuration package for Samsung Galaxy A30 (SM-A305F)"
+url="https://postmarketos.org"
+arch="aarch64"
+license="MIT"
+depends="postmarketos-base
+	libhybris-musl
+	libhybris-musl-egl
+	weston-decon
+	eudev
+	seatd"
+source="deviceinfo
+	initfs-hook.sh
+	weston.ini
+	weston.initd
+	99-mali-decon.rules"
+subpackages=""
+options="!check"
+
+package() {
+	# Install deviceinfo
+	install -Dm644 "$srcdir"/deviceinfo \
+		"$pkgdir"/etc/deviceinfo
+
+	# Install initfs hook
+	install -Dm755 "$srcdir"/initfs-hook.sh \
+		"$pkgdir"/etc/postmarketos-mkinitfs/hooks/00-samsung-a30.sh
+
+	# Install Weston configuration
+	install -Dm644 "$srcdir"/weston.ini \
+		"$pkgdir"/etc/xdg/weston/weston.ini
+
+	# Install OpenRC service
+	install -Dm755 "$srcdir"/weston.initd \
+		"$pkgdir"/etc/init.d/weston
+
+	# Install udev hardware rules
+	install -Dm644 "$srcdir"/99-mali-decon.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/99-mali-decon.rules
+}

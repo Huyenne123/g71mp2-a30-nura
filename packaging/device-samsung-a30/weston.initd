@@ -1,0 +1,33 @@
+#!/sbin/openrc-run
+# /etc/init.d/weston - Weston 14 Direct-DECON Compositor Service
+
+name="weston"
+description="Weston Wayland Compositor on Samsung DECON Window 3"
+
+: ${WESTON_USER:="root"}
+: ${WESTON_LOG:="/var/log/weston.log"}
+: ${XDG_RUNTIME_DIR:="/run/user/0"}
+
+command="/usr/bin/weston"
+command_args="--backend=decon --renderer=gl --idle-time=0 --log=${WESTON_LOG}"
+command_background="yes"
+pidfile="/run/weston.pid"
+
+depend() {
+	need udev-postmount
+	after eudev seatd
+}
+
+start_pre() {
+	checkpath -d -m 0700 -o ${WESTON_USER} "${XDG_RUNTIME_DIR}"
+	export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}"
+	export WAYLAND_DISPLAY="wayland-0"
+	export LD_LIBRARY_PATH="/usr/lib"
+	export EGL_PLATFORM="wayland"
+
+	# Ensure device nodes exist and have correct permissions
+	if [ -e /dev/graphics/fb0 ]; then chmod 666 /dev/graphics/fb0; fi
+	if [ -e /dev/mali0 ]; then chmod 666 /dev/mali0; fi
+	if [ -e /dev/ion ]; then chmod 666 /dev/ion; fi
+	if [ -e /dev/sync ]; then chmod 666 /dev/sync; fi
+}

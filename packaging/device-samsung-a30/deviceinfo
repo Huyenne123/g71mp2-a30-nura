@@ -1,0 +1,37 @@
+# Deviceinfo format version
+deviceinfo_format_version="0"
+
+# Device metadata
+deviceinfo_name="Samsung Galaxy A30"
+deviceinfo_manufacturer="Samsung"
+deviceinfo_codename="samsung-a30"
+deviceinfo_year="2019"
+deviceinfo_arch="aarch64"
+
+# Display & UI
+deviceinfo_screen_width="1080"
+deviceinfo_screen_height="2340"
+deviceinfo_gpu_accelerated="true"
+deviceinfo_dev_touchscreen="/dev/input/event1"
+
+# Boot image configuration
+deviceinfo_flash_method="heimdall-bootimg"
+deviceinfo_generate_bootimg="true"
+deviceinfo_bootimg_qcdt="false"
+deviceinfo_bootimg_dtb_second="false"
+deviceinfo_header_version="0"
+deviceinfo_kernel_cmdline="buildvariant=userdebug console=null androidboot.hardware=universal7904 loop.max_part=7"
+deviceinfo_page_size="2048"
+deviceinfo_kernel_addr="0x10008000"
+deviceinfo_ramdisk_addr="0x11000000"
+deviceinfo_second_addr="0x00000000"
+deviceinfo_tags_addr="0x10000100"
+
+# Partition layout (Exynos 7904 eMMC)
+deviceinfo_boot_partition="/dev/block/by-name/boot"
+deviceinfo_root_partition="/dev/block/by-name/userdata"
+
+# Hybris Android blob compatibility
+deviceinfo_hybris="true"
+deviceinfo_hybris_vendor_partition="/dev/block/by-name/vendor"
+deviceinfo_hybris_system_partition="/dev/block/by-name/system"

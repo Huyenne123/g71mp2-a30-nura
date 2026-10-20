@@ -77,7 +77,8 @@ Extracted directly from device sysfs and debugfs via rooted ADB session.
 | `kernel_config.gz` | `/proc/config.gz` | 31,753 | `06a5f2aa7393ee4b687d7e4d4c11e8b7637eb88c3d50c15f298c2ae301b4212e` | Active Linux kernel build configuration (`4.4.302-p6-neyuKernel_legacy`) |
 | `kernel_config.txt` | Decompressed config | 134,814 | `49f99f36e4f3a4b64816be58461db7ba5139fbfa7f60741da10b25e1df1efcb3` | Plaintext kernel options |
 | `device_tree.dtb` | `/sys/firmware/fdt` | 160,704 | `9b9b2052389f4595effcdc2670e064da674f474be84370f1d81fb734cb40d08d` | Flattened Device Tree binary from live boot |
-| `boot.img` | `/dev/block/by-name/boot` | 33,554,432 | `d13242c3b3989d2f9a552848a7c5cbf6f99831067229ef057f87afd24ae929f9` | Raw boot partition image dumped from device |
+| `boot.img` | `/dev/block/by-name/boot` | 33,554,432 | `d13242c3b3989d2f9a552848a7c5cbf6f99831067229ef057f87afd24ae929f9` | Raw boot partition image dumped from device (early) |
+| `stock_boot.img` | `/dev/block/by-name/boot` | 37,748,736 | `6a05e47caaf725943e6be4f058c93e1067c9e6e6cca5baacd370a483fa8cf8e0` | Full live boot partition dump (36 MB eMMC block dev) |
 | `kernel.img` | Extracted from `boot.img` | 27,815,936 | `96556a9681076ff529b58208b1d89cefcd3459f66646c0955160a8cb114bcff1` | Raw ARM64 Linux kernel Image executable |
 
 ---

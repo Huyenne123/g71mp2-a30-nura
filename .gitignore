@@ -28,4 +28,7 @@ src/weston/backend-decon/*.o
 __pycache__/
 .cache/
 scratch/
+build/
+artifacts/extracted/stock_boot_unpacked/
+
 

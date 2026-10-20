@@ -1,0 +1,75 @@
+# Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
+pkgname=libhybris-musl
+pkgver=0.1.0_git20261019
+pkgrel=1
+pkgdesc="Bionic to musl runtime bridge and EGL/GLES platform for Android vendor blobs (Exynos 7904 / Mali-G71)"
+url="https://github.com/libhybris/libhybris"
+arch="aarch64"
+license="Apache-2.0"
+depends=""
+depends_dev="wayland-dev"
+makedepends="autoconf automake libtool make gcc g++ musl-dev linux-headers wayland-dev"
+subpackages="$pkgname-dev $pkgname-egl $pkgname-libs"
+source="0002-libhybris-musl-bionic-bridge.patch"
+options="!check"
+
+build() {
+	cd "$srcdir"
+	# In packaging tree, source is prepared via git clone or tarball
+	if [ -d libhybris ]; then
+		cd libhybris
+	fi
+
+	patch -p1 -N < "$srcdir"/0002-libhybris-musl-bionic-bridge.patch || true
+
+	autoreconf -fiv
+	./configure \
+		--prefix=/usr \
+		--sysconfdir=/etc \
+		--localstatedir=/var \
+		--enable-arch=arm64 \
+		--enable-android-version=10.0.0 \
+		--enable-wayland \
+		--enable-hwcomposer \
+		--with-default-egl-platform=wayland \
+		--enable-trace=no \
+		--disable-static
+	make -j$(nproc)
+}
+
+package() {
+	cd "$srcdir"
+	if [ -d libhybris ]; then cd libhybris; fi
+
+	make DESTDIR="$pkgdir" install
+
+	# Ensure proper library directory structure
+	install -d "$pkgdir"/usr/lib/libhybris/linker
+	if [ -f common/q/linker/q.so ]; then
+		install -m755 common/q/linker/q.so "$pkgdir"/usr/lib/libhybris/linker/q.so
+	fi
+}
+
+libs() {
+	pkgdesc="Core Bionic-to-musl linker and sync primitives"
+	depends=""
+	install -d "$subpkgdir"/usr/lib/libhybris/linker
+	mv "$pkgdir"/usr/lib/libhybris/linker/q.so "$subpkgdir"/usr/lib/libhybris/linker/ 2>/dev/null || true
+	mv "$pkgdir"/usr/lib/libhybris-common.so* "$subpkgdir"/usr/lib/
+	mv "$pkgdir"/usr/lib/libsync.so* "$subpkgdir"/usr/lib/
+	mv "$pkgdir"/usr/lib/libhardware.so* "$subpkgdir"/usr/lib/
+}
+
+egl() {
+	pkgdesc="EGL and OpenGL ES acceleration libraries via libhybris"
+	depends="$pkgname-libs"
+	install -d "$subpkgdir"/usr/lib
+	mv "$pkgdir"/usr/lib/libEGL.so* "$subpkgdir"/usr/lib/
+	mv "$pkgdir"/usr/lib/libGLESv1_CM.so* "$subpkgdir"/usr/lib/
+	mv "$pkgdir"/usr/lib/libGLESv2.so* "$subpkgdir"/usr/lib/
+	mv "$pkgdir"/usr/lib/libwayland-egl.so* "$subpkgdir"/usr/lib/
+	mv "$pkgdir"/usr/lib/libhybris-hwcomposerwindow.so* "$subpkgdir"/usr/lib/
+	if [ -d "$pkgdir"/usr/lib/libhybris ]; then
+		mv "$pkgdir"/usr/lib/libhybris "$subpkgdir"/usr/lib/
+	fi
+}

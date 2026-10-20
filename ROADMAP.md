@@ -327,11 +327,28 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 8: postmarketOS Packaging & Standalone Direct Boot Deployment (Next)
-- [ ] Author APKBUILD recipes for `libhybris-musl` and `weston-backend-decon` for Alpine / postmarketOS.
-- [ ] Build custom `boot.img` with postmarketOS initramfs switchroot script to boot directly into Alpine userspace.
-- [ ] Validate standalone cold-boot to Weston desktop on hardware without Android framework running.
-- [ ] Evaluate long-term upstream path: Exynos 7904 DECON DRM driver and Panfrost Bifrost v6 support on Linux 6.x.
+## Milestone 8: postmarketOS Packaging & Standalone Direct Boot Deployment (Completed)
+- [x] Author comprehensive packaging suite for postmarketOS / Alpine Linux (`pmbootstrap`):
+  - `packaging/libhybris-musl/APKBUILD`: Bionic dynamic linker (`linker/q.so`), EGL, GLES, sync, and hwcomposer window libraries with patch `0002-libhybris-musl-bionic-bridge.patch`.
+  - `packaging/weston-decon/APKBUILD`: Weston 14.0.2 with native DECON Window 3 and GL renderer backends.
+  - `packaging/device-samsung-a30/`: Device package with `deviceinfo`, `initfs-hook.sh`, `weston.ini`, `weston.initd`, and `99-mali-decon.rules`.
+- [x] Implement freestanding Android Boot Image tools:
+  - `tools/mkbootimg.py`: Header v0/v1/v2 boot image generator with page alignment and SHA-1 checksumming.
+  - `tools/unpackbootimg.py`: Header extractor and kernel/ramdisk unpacker.
+- [x] Extract live stock boot image (`artifacts/extracted/stock_boot.img`, 37.75 MB, SHA-256 `6a05e47c...`) and downstream kernel binary (`artifacts/extracted/stock_boot_unpacked/kernel`, 27.82 MB).
+- [x] Package standalone direct boot initramfs using static Busybox (`tools/busybox-arm64-static`) with automated switchroot `/init` mounting `/android/vendor` and `/android/system`.
+- [x] Generate and verify standalone direct boot image: `build/boot-direct.img` (28.48 MB, SHA-256 `9e675868...`) via `scripts/build_direct_boot.sh`.
+- [x] Formulate non-destructive flashing and hardware recovery safety protocol (TWRP `Vol-Up + Power`, Odin/Heimdall `Vol-Up + Vol-Down + USB`).
+- [x] Synthesize comprehensive upstream enablement roadmap for Exynos 7904 DECON DRM/KMS and Mesa Panfrost Bifrost v6 on Linux 6.x.
+- [x] Deliver Milestone 8 technical report: `analysis/milestone-8-packaging-and-direct-boot.md`.
+
+---
+
+## Milestone 9: Upstream Mainline Kernel DRM & Mesa Panfrost Porting (Next)
+- [ ] Port Exynos 7904 DECON display controller to upstream Linux DRM/KMS subsystem (`drivers/gpu/drm/exynos/exynos_drm_decon.c`).
+- [ ] Register Exynos 7904 GPU ID (`0x60A0`) and quirks in Mesa Panfrost (`src/panfrost/shared/pan_model.c`).
+- [ ] Register Exynos 7904 GPU ID in mainline Linux kernel Panfrost driver (`drivers/gpu/drm/panfrost/panfrost_gpu.c`).
+- [ ] Build and test mainline Linux 6.x kernel with standard open-source Panfrost GLES and Weston DRM backend.
 
 ---
 

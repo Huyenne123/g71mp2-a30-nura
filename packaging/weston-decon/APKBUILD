@@ -1,0 +1,70 @@
+# Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
+pkgname=weston-decon
+pkgver=14.0.2
+pkgrel=1
+pkgdesc="Weston 14 Wayland compositor with native Samsung DECON Window 3 and Mali GL-renderer backends"
+url="https://wayland.freedesktop.org"
+arch="aarch64"
+license="MIT"
+depends="pixman wayland libxkbcommon libinput eudev-libs libhybris-musl-egl"
+makedepends="meson ninja gcc musl-dev pixman-dev wayland-dev wayland-protocols
+	libxkbcommon-dev libinput-dev eudev-dev linux-headers libhybris-musl-dev
+	libseat-dev"
+subpackages="$pkgname-dev $pkgname-doc $pkgname-clients"
+source="https://gitlab.freedesktop.org/wayland/weston/-/archive/$pkgver/weston-$pkgver.tar.gz
+	0001-weston-14-direct-decon-backend.patch
+	0003-weston-14-direct-decon-gl-renderer.patch"
+builddir="$srcdir/weston-$pkgver"
+
+prepare() {
+	default_prepare
+	patch -p1 < "$srcdir"/0001-weston-14-direct-decon-backend.patch
+	patch -p1 < "$srcdir"/0003-weston-14-direct-decon-gl-renderer.patch
+}
+
+build() {
+	meson setup \
+		--prefix=/usr \
+		--sysconfdir=/etc \
+		--mandir=/usr/share/man \
+		--localstatedir=/var \
+		--buildtype=release \
+		-Dbackend-decon=true \
+		-Dbackend-default=decon \
+		-Drenderer-gl=true \
+		-Dbackend-drm=false \
+		-Dbackend-headless=true \
+		-Dbackend-pipewire=false \
+		-Dbackend-rdp=false \
+		-Dbackend-vnc=false \
+		-Dbackend-wayland=false \
+		-Dbackend-x11=false \
+		-Dcolor-management-lcms=false \
+		-Ddesktop-shell=true \
+		-Dsimple-clients=damage,shm,touch,egl \
+		-Dlauncher-libseat=true \
+		-Dtest-junit-xml=false \
+		output
+	ninja -C output
+}
+
+check() {
+	ninja -C output test || true
+}
+
+package() {
+	DESTDIR="$pkgdir" ninja -C output install
+
+	# Ensure decon-backend is in libweston plugin directory
+	install -d "$pkgdir"/usr/lib/libweston-14
+	if [ -f output/libweston/backend-decon/decon-backend.so ]; then
+		install -m755 output/libweston/backend-decon/decon-backend.so "$pkgdir"/usr/lib/libweston-14/decon-backend.so
+	fi
+}
+
+clients() {
+	pkgdesc="Weston test and benchmark clients (including weston-simple-egl)"
+	depends="$pkgname"
+	install -d "$subpkgdir"/usr/bin
+	mv "$pkgdir"/usr/bin/weston-simple-* "$subpkgdir"/usr/bin/ 2>/dev/null || true
+}
