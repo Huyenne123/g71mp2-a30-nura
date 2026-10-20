@@ -86,7 +86,7 @@ ui_print "[+] boot.img successfully flashed!"
 
 set_progress 0.3
 
-# 2. Locate and mount target rootfs partition (userdata / mmcblk0p32)
+# 2. Locate, format and mount target rootfs partition (userdata / mmcblk0p32)
 ui_print "[*] Locating target installation partition (userdata)..."
 DATA_PART=""
 if [ -b /dev/block/by-name/userdata ]; then
@@ -100,26 +100,31 @@ if [ -z "$DATA_PART" ]; then
     exit 1
 fi
 
-mkdir -p /pmos_target
-umount -l /pmos_target 2>/dev/null || true
+ui_print "[*] Target partition: $DATA_PART"
+ui_print "[*] Formatting userdata as ext4 (label: pmOS_root)..."
+umount /pmos_target 2>/dev/null || true
+umount "$DATA_PART" 2>/dev/null || true
 
-# Try mounting userdata
-if ! mount -t ext4 -o rw,noatime "$DATA_PART" /pmos_target 2>/dev/null; then
-    ui_print "[!] Userdata partition not mounted. Formatting userdata as ext4..."
-    mke2fs -t ext4 -F "$DATA_PART" || mkfs.ext4 -F "$DATA_PART"
-    mount -t ext4 -o rw,noatime "$DATA_PART" /pmos_target
+# Format userdata cleanly with pmOS_root label
+if ! mke2fs -F -t ext4 -L "pmOS_root" -O "^metadata_csum,^huge_file" "$DATA_PART" 2>/dev/null; then
+    if ! mkfs.ext4 -F -L "pmOS_root" -O "^metadata_csum,^huge_file" "$DATA_PART" 2>/dev/null; then
+        mkfs.ext4 -F -L "pmOS_root" "$DATA_PART"
+    fi
 fi
 
-set_progress 0.5
+mkdir -p /pmos_target
+if ! mount -t ext4 -o rw,noatime "$DATA_PART" /pmos_target; then
+    ui_print "[-] ERROR: Failed to mount formatted userdata partition!"
+    exit 1
+fi
 
-# 3. Deploy rootfs into /pmos_target/alpine
-ui_print "[*] Preparing target directory /data/alpine..."
-mkdir -p /pmos_target/alpine
+set_progress 0.4
 
-ui_print "[*] Extracting rootfs.tar.gz into /data/alpine..."
+# 3. Deploy rootfs into /pmos_target
+ui_print "[*] Extracting postmarketOS Direct-DECON rootfs into userdata..."
 ui_print "    (This takes ~1-2 minutes, please wait...)"
 
-unzip -p "$ZIP" rootfs.tar.gz | tar -xz -C /pmos_target/alpine || {
+unzip -p "$ZIP" rootfs.tar.gz | tar -xz -C /pmos_target || {
     ui_print "[-] ERROR: Failed to extract rootfs.tar.gz!"
     umount /pmos_target 2>/dev/null || true
     exit 1
@@ -127,23 +132,38 @@ unzip -p "$ZIP" rootfs.tar.gz | tar -xz -C /pmos_target/alpine || {
 
 set_progress 0.8
 
-# 4. Create essential directories in rootfs
-ui_print "[*] Creating virtual filesystem mountpoints in rootfs..."
-mkdir -p /pmos_target/alpine/proc \
-         /pmos_target/alpine/sys \
-         /pmos_target/alpine/dev \
-         /pmos_target/alpine/tmp \
-         /pmos_target/alpine/run \
-         /pmos_target/alpine/sysroot \
-         /pmos_target/alpine/android/vendor \
-         /pmos_target/alpine/android/system \
-         /pmos_target/alpine/android/apex
+# 4. Create compatibility layout and virtual filesystem mountpoints
+ui_print "[*] Setting up system directories and compatibility links..."
+mkdir -p /pmos_target/boot \
+         /pmos_target/proc \
+         /pmos_target/sys \
+         /pmos_target/dev \
+         /pmos_target/tmp \
+         /pmos_target/run \
+         /pmos_target/sysroot \
+         /pmos_target/android/vendor \
+         /pmos_target/android/system \
+         /pmos_target/android/apex
+
+# Save boot image copy in /boot/boot.img
+unzip -p "$ZIP" boot.img > /pmos_target/boot/boot.img 2>/dev/null || true
+
+# Symlink /data/alpine -> . for dual-path bootloader compatibility
+ln -sf . /pmos_target/alpine 2>/dev/null || true
 
 # 5. Flush and clean up
 set_progress 0.95
-ui_print "[*] Syncing filesystems to storage..."
+ui_print "[*] Syncing filesystem buffers..."
 sync
 umount /pmos_target
+
+# Workaround to disable 'No OS installed' prompt in TWRP
+(
+    sleep 4
+    echo "set tw_backup_system_size 999" > /sbin/orsin 2>/dev/null || true
+    sleep 2
+    echo "set tw_app_prompt 0" > /sbin/orsin 2>/dev/null || true
+) &
 
 set_progress 1.0
 ui_print " "
@@ -159,13 +179,27 @@ chmod 755 "${ZIP_DIR}/META-INF/com/google/android/update-binary"
 
 echo "# Dummy updater-script" > "${ZIP_DIR}/META-INF/com/google/android/updater-script"
 
+echo "[*] Creating postmarketOS recovery installer metadata (install_options)..."
+cat << 'EOF' > "${ZIP_DIR}/install_options"
+DEVICE='samsung-a30'
+FLASH_KERNEL='true'
+FLAVOR=''
+ISOREC='false'
+KERNEL_PARTLABEL='boot'
+INITFS_PARTLABEL='boot'
+SYSTEM_PARTLABEL='system'
+INSTALL_PARTITION='data'
+CIPHER='aes-xts-plain64'
+FDE='false'
+EOF
+
 echo "[*] Linking boot.img and rootfs.tar.gz..."
 ln -s "${BOOT_IMG}" "${ZIP_DIR}/boot.img"
 ln -s "${ROOTFS_TAR}" "${ZIP_DIR}/rootfs.tar.gz"
 
 echo "[*] Creating flashable ZIP package: ${OUTPUT_ZIP}..."
 rm -f "${OUTPUT_ZIP}"
-(cd "${ZIP_DIR}" && zip -0 -r "${OUTPUT_ZIP}" META-INF/ boot.img rootfs.tar.gz)
+(cd "${ZIP_DIR}" && zip -0 -r "${OUTPUT_ZIP}" META-INF/ install_options boot.img rootfs.tar.gz)
 
 SHA256=$(sha256sum "${OUTPUT_ZIP}" | awk '{print $1}')
 SIZE=$(stat -c%s "${OUTPUT_ZIP}")

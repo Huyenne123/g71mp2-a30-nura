@@ -47,63 +47,91 @@ echo "   Hardware: Samsung Galaxy A30 (Exynos 7904 / Mali-G71 MP2)     "
 echo "================================================================="
 
 # Wait for eMMC block devices to enumerate
-echo "[*] Waiting for eMMC storage to enumerate..."
+echo "[*] Waiting for storage devices to enumerate..."
 for i in $(seq 1 30); do
-    if [ -b /dev/block/by-name/userdata ] || [ -b /dev/block/mmcblk0p32 ]; then
+    if [ -b /dev/block/by-name/userdata ] || [ -b /dev/block/mmcblk0p32 ] || [ -b /dev/mmcblk0p32 ]; then
         break
     fi
     sleep 0.1
 done
 
-# Resolve userdata partition
-USERDATA_DEV=""
-if [ -b /dev/block/by-name/userdata ]; then
-    USERDATA_DEV="/dev/block/by-name/userdata"
-elif [ -b /dev/block/mmcblk0p32 ]; then
-    USERDATA_DEV="/dev/block/mmcblk0p32"
-fi
-
-# Fallback: check for external SD card (mmcblk1p2 or mmcblk1p1)
-SD_DEV=""
-if [ -b /dev/mmcblk1p2 ]; then
-    SD_DEV="/dev/mmcblk1p2"
-elif [ -b /dev/mmcblk1p1 ]; then
-    SD_DEV="/dev/mmcblk1p1"
-fi
-
-mkdir -p /mnt/userdata /sysroot
+mkdir -p /mnt/userdata /mnt/boot /sysroot
 
 ROOT_MOUNTED=0
 
-# Priority 1: Boot from dedicated rootfs on external microSD if present
-if [ -n "$SD_DEV" ]; then
-    echo "[*] Probing external microSD rootfs on $SD_DEV..."
-    if mount -t ext4 -o ro "$SD_DEV" /sysroot 2>/dev/null; then
-        echo "[+] Successfully mounted rootfs from external microSD ($SD_DEV)."
+# Priority 1: Label pmOS_root (standard postmarketOS)
+echo "[*] Scanning for partition with label pmOS_root..."
+PMOS_ROOT_DEV=$(findfs LABEL=pmOS_root 2>/dev/null || true)
+if [ -n "$PMOS_ROOT_DEV" ] && [ -b "$PMOS_ROOT_DEV" ]; then
+    echo "[*] Found pmOS_root partition at $PMOS_ROOT_DEV, mounting..."
+    if mount -t ext4 -o noatime "$PMOS_ROOT_DEV" /sysroot 2>/dev/null; then
+        echo "[+] Successfully mounted pmOS_root partition."
         ROOT_MOUNTED=1
     fi
 fi
 
-# Priority 2: Boot from /data/alpine on internal eMMC userdata
-if [ $ROOT_MOUNTED -eq 0 ] && [ -n "$USERDATA_DEV" ]; then
-    echo "[*] Mounting eMMC userdata partition ($USERDATA_DEV)..."
-    if mount -t ext4 -o noatime "$USERDATA_DEV" /mnt/userdata; then
-        if [ -d /mnt/userdata/alpine/bin ]; then
-            echo "[+] Found Alpine Linux rootfs at /data/alpine."
-            mount --bind /mnt/userdata/alpine /sysroot
-            ROOT_MOUNTED=1
-        elif [ -f /mnt/userdata/rootfs.img ]; then
-            echo "[+] Found loopback rootfs image at /data/rootfs.img."
-            mount -t ext4 -o loop,noatime /mnt/userdata/rootfs.img /sysroot
-            ROOT_MOUNTED=1
+# Priority 2: Direct userdata partition
+if [ $ROOT_MOUNTED -eq 0 ]; then
+    USERDATA_DEV=""
+    if [ -b /dev/block/by-name/userdata ]; then
+        USERDATA_DEV="/dev/block/by-name/userdata"
+    elif [ -b /dev/block/mmcblk0p32 ]; then
+        USERDATA_DEV="/dev/block/mmcblk0p32"
+    elif [ -b /dev/mmcblk0p32 ]; then
+        USERDATA_DEV="/dev/mmcblk0p32"
+    fi
+
+    if [ -n "$USERDATA_DEV" ]; then
+        echo "[*] Checking userdata partition ($USERDATA_DEV)..."
+        if mount -t ext4 -o noatime "$USERDATA_DEV" /mnt/userdata 2>/dev/null; then
+            if [ -x /mnt/userdata/sbin/init ] || [ -x /mnt/userdata/bin/sh ]; then
+                echo "[+] Found rootfs directly on userdata partition."
+                mount --bind /mnt/userdata /sysroot
+                ROOT_MOUNTED=1
+            elif [ -d /mnt/userdata/alpine/bin ]; then
+                echo "[+] Found Alpine Linux rootfs at /data/alpine."
+                mount --bind /mnt/userdata/alpine /sysroot
+                ROOT_MOUNTED=1
+            elif [ -f /mnt/userdata/rootfs.img ]; then
+                echo "[+] Found loopback rootfs image at /data/rootfs.img."
+                mount -t ext4 -o loop,noatime /mnt/userdata/rootfs.img /sysroot
+                ROOT_MOUNTED=1
+            fi
         fi
     fi
+fi
+
+# Priority 3: External MicroSD
+if [ $ROOT_MOUNTED -eq 0 ]; then
+    for SD_DEV in /dev/mmcblk1p2 /dev/mmcblk1p1; do
+        if [ -b "$SD_DEV" ]; then
+            echo "[*] Probing external microSD on $SD_DEV..."
+            if mount -t ext4 -o ro "$SD_DEV" /sysroot 2>/dev/null; then
+                if [ -x /sysroot/sbin/init ] || [ -x /sysroot/bin/sh ]; then
+                    echo "[+] Successfully mounted rootfs from external microSD ($SD_DEV)."
+                    ROOT_MOUNTED=1
+                    break
+                else
+                    umount /sysroot 2>/dev/null || true
+                fi
+            fi
+        fi
+    done
 fi
 
 if [ $ROOT_MOUNTED -eq 0 ]; then
     echo "[-] FATAL: Could not locate a valid Linux rootfs!"
     echo "[-] Entering emergency rescue shell. Kernel output on /dev/kmsg."
     exec /bin/busybox sh
+fi
+
+# Check for pmOS_boot partition
+PMOS_BOOT_DEV=$(findfs LABEL=pmOS_boot 2>/dev/null || true)
+if [ -n "$PMOS_BOOT_DEV" ] && [ -b "$PMOS_BOOT_DEV" ]; then
+    mkdir -p /sysroot/boot
+    mount -t ext2 -o ro "$PMOS_BOOT_DEV" /sysroot/boot 2>/dev/null || \
+    mount -t ext4 -o ro "$PMOS_BOOT_DEV" /sysroot/boot 2>/dev/null || true
+    echo "[+] Mounted pmOS_boot on /boot"
 fi
 
 # Mount Android vendor and system partitions for Libhybris compatibility
