@@ -1,7 +1,7 @@
 # Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
 pkgname=device-samsung-a30
-pkgver=1.0.0
-pkgrel=2
+pkgver=1.0.1
+pkgrel=0
 pkgdesc="postmarketOS device configuration package for Samsung Galaxy A30 (SM-A305F)"
 url="https://postmarketos.org"
 arch="aarch64"
