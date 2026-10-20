@@ -36,8 +36,8 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
-# Setup kmsg logging and console
-exec 0</dev/console
+# Setup kmsg logging and stdin safety (console=null protection)
+exec 0</dev/zero
 exec 1>/dev/kmsg
 exec 2>/dev/kmsg
 
@@ -46,10 +46,11 @@ echo "   postmarketOS / Direct-DECON Standalone Direct Boot Init       "
 echo "   Hardware: Samsung Galaxy A30 (Exynos 7904 / Mali-G71 MP2)     "
 echo "================================================================="
 
-# Wait for eMMC block devices to enumerate
+# Wait up to 15 seconds for eMMC block devices to enumerate
 echo "[*] Waiting for storage devices to enumerate..."
-for i in $(seq 1 30); do
-    if [ -b /dev/block/by-name/userdata ] || [ -b /dev/block/mmcblk0p32 ] || [ -b /dev/mmcblk0p32 ]; then
+for i in $(seq 1 150); do
+    if [ -b /dev/mmcblk0p32 ] || [ -b /dev/block/mmcblk0p32 ] || [ -b /dev/block/by-name/userdata ]; then
+        echo "[+] Storage device enumerated after $((i * 100)) ms."
         break
     fi
     sleep 0.1
@@ -64,18 +65,18 @@ mkdir -p /dev/block
 
 # Locate userdata partition
 USERDATA_DEV=""
-if [ -b /dev/block/by-name/userdata ]; then
-    USERDATA_DEV="/dev/block/by-name/userdata"
+if [ -b /dev/mmcblk0p32 ]; then
+    USERDATA_DEV="/dev/mmcblk0p32"
 elif [ -b /dev/block/mmcblk0p32 ]; then
     USERDATA_DEV="/dev/block/mmcblk0p32"
-elif [ -b /dev/mmcblk0p32 ]; then
-    USERDATA_DEV="/dev/mmcblk0p32"
+elif [ -b /dev/block/by-name/userdata ]; then
+    USERDATA_DEV="/dev/block/by-name/userdata"
 fi
 
 # Attach loop device with partition scan (-P) on userdata if present
 if [ -n "$USERDATA_DEV" ]; then
     echo "[*] Checking userdata partition ($USERDATA_DEV) for subpartitions..."
-    losetup -Pf "$USERDATA_DEV" 2>/dev/null || true
+    losetup -P /dev/loop0 "$USERDATA_DEV" 2>&1 || true
     sleep 0.5
 fi
 
@@ -87,7 +88,7 @@ ROOT_MOUNTED=0
 echo "[*] Scanning for partition with label pmOS_root..."
 PMOS_ROOT_DEV=$(findfs LABEL=pmOS_root 2>/dev/null || true)
 if [ -z "$PMOS_ROOT_DEV" ]; then
-    for candidate in /dev/block/loop0p2 /dev/loop0p2 /dev/block/loop1p2 /dev/loop1p2; do
+    for candidate in /dev/loop0p2 /dev/block/loop0p2 /dev/loop1p2 /dev/block/loop1p2; do
         if [ -b "$candidate" ]; then
             PMOS_ROOT_DEV="$candidate"
             break
@@ -143,16 +144,15 @@ fi
 
 if [ $ROOT_MOUNTED -eq 0 ]; then
     echo "[-] FATAL: Could not locate a valid Linux rootfs!"
-    echo "[-] Preventing immediate reboot loop so logs can be inspected."
-    while true; do
-        sleep 5
-    done
+    echo "[-] Rebooting into TWRP recovery in 5 seconds..."
+    sleep 5
+    reboot recovery || reboot -f || true
 fi
 
 # Check for pmOS_boot partition
 PMOS_BOOT_DEV=$(findfs LABEL=pmOS_boot 2>/dev/null || true)
 if [ -z "$PMOS_BOOT_DEV" ]; then
-    for candidate in /dev/block/loop0p1 /dev/loop0p1 /dev/block/loop1p1 /dev/loop1p1; do
+    for candidate in /dev/loop0p1 /dev/block/loop0p1 /dev/loop1p1 /dev/block/loop1p1; do
         if [ -b "$candidate" ]; then
             PMOS_BOOT_DEV="$candidate"
             break
