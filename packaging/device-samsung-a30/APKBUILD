@@ -7,18 +7,31 @@ url="https://postmarketos.org"
 arch="aarch64"
 license="MIT"
 depends="postmarketos-base
-	libhybris-musl
-	libhybris-musl-egl
-	weston-decon
 	eudev
-	seatd"
+	seatd
+	pixman
+	wayland
+	libxkbcommon
+	libinput"
 source="deviceinfo
 	initfs-hook.sh
 	weston.ini
 	weston.initd
-	99-mali-decon.rules"
+	99-mali-decon.rules
+	driver-payload.tar.gz
+	boot.img"
 subpackages=""
 options="!check"
+
+sha512sums="
+36f933443c7a8db12c96ec2ea1cde0a704dd495dbf9ff36a101bc523a801ffc3021a6d2573a2bb66446119f1199d198a9a1619234c8f9fdf5dbec5a70c4e2892  deviceinfo
+15af176427a71841e8c1d7660ec71d29f61dfda214d655d0a62de6c584ea468fe509453b4df3f0486a6ce04c4e64e22115189a7c68dfe376c5f4854e635c0e47  initfs-hook.sh
+a1fbd48f18236d352b4d1e4d31d3e1eab3e41dc25d42aa07ad1b71075fee110d4a741a4b0b4a630fe156b76b06b8e98583989cdc1f2562e709703f35cf79ff68  weston.ini
+208e40335ee3eb52194a96ee8d83c04ce4a8063ecbd02b088ff3fbfe2d3634756075468a45d43233bc3724cebfc14096b7c56a911ecfa814e2dbd7e8a518e46d  weston.initd
+0ce11336b955eae20e95190f7b8f82c25527f1dab189f923041c065444bc0aecea1a609b1ea9bff98f2dfc7f79a72f59e297a3a94dc4426ba8d6c520c5ad3104  99-mali-decon.rules
+a1002e0e80cc02976241aa5262d3ada892527c24c4b3dd59be3c70c1826cb509ebd3c61204353c41e1f71fb19c001132bcf89852046ed9bf450402bd82bf7481  driver-payload.tar.gz
+7565d15c68f82984f66f5179260ea27805607e3f223be036bb70651579b4428cb5a24e6b61b780be2ced4e86ecdd53ab3d1f61483566940d32fd78ee2bc19298  boot.img
+"
 
 package() {
 	# Install deviceinfo
@@ -40,4 +53,12 @@ package() {
 	# Install udev hardware rules
 	install -Dm644 "$srcdir"/99-mali-decon.rules \
 		"$pkgdir"/usr/lib/udev/rules.d/99-mali-decon.rules
+
+	# Unpack prebuilt driver payload (libhybris, weston-decon, gl-renderer)
+	mkdir -p "$pkgdir"/usr
+	tar -zxf "$srcdir"/driver-payload.tar.gz -C "$pkgdir"
+
+	# Install prebuilt boot.img
+	install -Dm644 "$srcdir"/boot.img \
+		"$pkgdir"/boot/boot.img
 }
