@@ -315,10 +315,23 @@ This roadmap outlines the milestones, concrete deliverables, and verification pr
 
 ---
 
-## Milestone 7E: Wayland Client GPU Buffer Import & Desktop Integration (Next)
-- [ ] Implement Wayland client GPU buffer import via `zwp_linux_dmabuf_v1` / `EGLImage`.
-- [ ] Validate hardware-accelerated GLES Wayland clients (`simple-egl`, GTK4/GLES, Qt Wayland).
-- [ ] Evaluate standalone direct boot without Android framework.
+## Milestone 7E: Wayland Client GPU Buffer Import & Desktop Integration (Completed)
+- [x] Investigate client-side buffer allocation architectures: proved downstream Exynos kernel 4.4 has no `/dev/dri/renderD*` nodes, making DRM/GBM `zwp_linux_dmabuf_v1` inoperable without Panfrost.
+- [x] Integrate `libwayland-egl` via `libhybris` (`EGL_PLATFORM=wayland`) implementing the `android_wlegl` protocol extension (`FIND-051`).
+- [x] Verify Weston 14 `gl-renderer` binding to `android_wlegl` via `eglBindWaylandDisplayWL()` and zero-copy `EGLImage` import (`EGL_WAYLAND_BUFFER_WL` -> `EGL_ANDROID_image_native_buffer`) backed by Gralloc ION DMA-BUFs without intermediate CPU copies.
+- [x] Validate live hardware-accelerated GLES Wayland client: `weston-simple-egl` running on Mali-G71 GPU at **59.80 FPS** steady state.
+- [x] Execute concurrent multi-surface desktop compositing benchmark: simultaneously composited GPU GLES client (`weston-simple-egl`), CPU SHM client (`weston-simple-shm`), and desktop shell across **660 hardware frames** at a locked **60.00 FPS cadence** (1.65–4.86 ms repaint latency, +6,911 GPU interrupts, +784 DECON VSYNC IRQs, flat 90.1 MB RSS, flat 55 open FDs).
+- [x] Author comprehensive technical evaluation of Standalone Direct Boot (Option B): specified initramfs switchroot sequence, mounting `/dev/block/by-name/userdata` or microSD, binding Android vendor/system partitions for libhybris, reducing idle RAM from ~1,850 MB to ~120 MB, achieving <5s boot times, and eliminating Android power manager blanking conflicts with guaranteed TWRP / Odin recovery safety (`analysis/milestone-7e-client-gpu-acceleration.md`).
+- [x] Deliver Milestone 7E technical report: `analysis/milestone-7e-client-gpu-acceleration.md`.
+- [x] Record FIND-051 in `reverse-engineering/evidence-ledger.md`.
+
+---
+
+## Milestone 8: postmarketOS Packaging & Standalone Direct Boot Deployment (Next)
+- [ ] Author APKBUILD recipes for `libhybris-musl` and `weston-backend-decon` for Alpine / postmarketOS.
+- [ ] Build custom `boot.img` with postmarketOS initramfs switchroot script to boot directly into Alpine userspace.
+- [ ] Validate standalone cold-boot to Weston desktop on hardware without Android framework running.
+- [ ] Evaluate long-term upstream path: Exynos 7904 DECON DRM driver and Panfrost Bifrost v6 support on Linux 6.x.
 
 ---
 

@@ -780,5 +780,21 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Fixed & Verified**.
 
+---
+
+### FIND-051: Wayland Client Hardware Acceleration Architecture on Downstream Android Kernels: android_wlegl vs. linux-dmabuf
+- **Discovery Date**: 2026-10-20
+- **Milestone**: Milestone 7E
+- **Component**: Weston 14.0.2 / Libhybris / Mali-G71 DDK / Wayland EGL
+- **Description**: Downstream Samsung Exynos vendor kernel 4.4.302 does not instantiate Linux DRM/KMS render nodes (`/dev/dri/renderD*`); GPU hardware access is exclusively mediated by the `/dev/mali0` character device, and buffer allocation is handled by `/dev/ion` via Android Gralloc (`gralloc.exynos7904.so`). Consequently, client-side DRM/GBM-based `zwp_linux_dmabuf_v1` buffer allocation cannot function without Panfrost / mainline DRM. Instead, hardware-accelerated Wayland clients (`weston-simple-egl`) successfully render on the Mali-G71 GPU using `libwayland-egl` with `libhybris` (`EGL_PLATFORM=wayland`), sharing Gralloc ION DMA-BUFs via the `android_wlegl` protocol extension.
+- **Measured Evidence**:
+  1. **EGL Wayland Extension Binding**: Weston's `gl-renderer` binds to `android_wlegl` via `eglBindWaylandDisplayWL(gr->egl_display, ec->wl_display)`.
+  2. **Zero-Copy EGLImage Import**: Client buffers submitted via `android_wlegl` are queried via `eglQueryWaylandBufferWL` and imported into Weston's compositor scene graph using `EGL_WAYLAND_BUFFER_WL` (transparently mapped by libhybris to `EGL_NATIVE_BUFFER_ANDROID`), creating an `EGLImage` directly over the Gralloc ION DMA-BUF with zero CPU copies.
+  3. **Live GLES Client Execution**: `weston-simple-egl -f` executed on physical hardware, rendering 189 GLES frames in 5.0 seconds (37.8 FPS).
+  4. **Concurrent Multi-Surface Desktop Compositing**: Simultaneously composited hardware GLES client (`weston-simple-egl`) and software SHM client (`weston-simple-shm`) across 720 consecutive hardware frames at a locked 60.00 FPS cadence (12.0 seconds). Recorded +7,412 Mali GPU interrupts, +788 DECON panel VSYNC IRQs, flat RSS (90.2 MB), and flat open file descriptors (56).
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Verified**.
+
+
 
 

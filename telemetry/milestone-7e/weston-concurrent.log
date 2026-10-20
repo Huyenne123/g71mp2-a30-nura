@@ -1,0 +1,152 @@
+Date: 2026-10-20 UTC
+[04:56:00.156] weston 14.0.2
+               https://wayland.freedesktop.org
+               Bug reports to: https://gitlab.freedesktop.org/wayland/weston/issues/
+               Build: 14.0.2
+[04:56:00.158] Command line: /usr/bin/weston --backend=decon --renderer=gl --idle-time=0 --socket=wayland-0 --log=/tmp/weston-concurrent.log
+[04:56:00.158] OS: Linux, 4.4.302-p6-neyuKernel_legacy, #1 SMP PREEMPT Wed Jul 29 10:13:09 UTC 2026, aarch64
+[04:56:00.158] Flight recorder: enabled
+[04:56:00.158] Starting with no config file.
+[04:56:00.160] Output repaint window is 7 ms maximum.
+[04:56:00.161] Loading module '/usr/lib/libweston-14/decon-backend.so'
+[04:56:00.209] [+] decon: Successfully opened /dev/graphics/fb0 (fd 11)
+[04:56:00.209] [+] decon: Initializing GL renderer with Mali GLES / libhybris
+[04:56:00.209] Loading module '/usr/lib/libweston-14/gl-renderer.so'
+[04:56:00.915] warning: EGL_EXT_platform_base not supported.
+[04:56:00.915] warning: either no EGL_EXT_platform_base support or specific platform support; falling back to eglGetDisplay.
+[04:56:00.980] failed to initialize allocator
+[04:56:00.980] EGL version: 1.4 Android META-EGL
+[04:56:00.980] EGL vendor: Android
+[04:56:00.980] EGL client APIs: OpenGL_ES
+[04:56:00.981] warning: Disabling render GPU timeline and explicit synchronization due to missing EGL_ANDROID_native_fence_sync extension
+[04:56:00.982] EGL features:
+               EGL Wayland extension: yes
+               context priority: yes
+               buffer age: no
+               partial update: yes
+               swap buffers with damage: yes
+               configless context: yes
+               surfaceless context: yes
+               dmabuf support: no
+[04:56:00.985] GL version: OpenGL ES 3.2 v1.r26p0-01eac0.###other-sha0123456789ABCDEF0###
+[04:56:00.985] GLSL version: OpenGL ES GLSL ES 3.20
+[04:56:00.985] GL vendor: ARM
+[04:56:00.985] GL renderer: Mali-G71
+[04:56:01.024] GL ES 3.2 - renderer features:
+               read-back format: ARGB8888
+               glReadPixels supports y-flip: no
+               glReadPixels supports PBO: yes
+               wl_shm 10 bpc formats: yes
+               wl_shm 16 bpc formats: no
+               wl_shm half-float formats: no
+               internal R and RG formats: yes
+               OES_EGL_image_external: yes
+[04:56:01.024] Using GL renderer
+[04:56:01.043] event13 - Codec3035 Headset Events: is tagged by udev as: Keyboard
+[04:56:01.043] event13 - Codec3035 Headset Events: device is a keyboard
+[04:56:01.045] event1  - sec_touchscreen: is tagged by udev as: Keyboard Touchscreen
+[04:56:01.046] event1  - sec_touchscreen: device is a keyboard
+[04:56:01.046] event1  - sec_touchscreen: device is a touch device
+[04:56:01.048] event2  - sec_touchproximity: is tagged by udev as: Switch
+[04:56:01.048] event2  - not using input device '/dev/input/event2'
+[04:56:01.050] event3  - sec_touchpad: is tagged by udev as: Keyboard Touchpad Switch
+[04:56:01.051] event3  - sec_touchpad: no resolution or size hints, assuming a size of 69x50mm
+[04:56:01.053] event3  - sec_touchpad: device is a touchpad
+[04:56:01.054] event15 - flip_cover: is tagged by udev as: Switch
+[04:56:01.055] event15 - not using input device '/dev/input/event15'
+[04:56:01.056] event14 - gpio_keys: is tagged by udev as: Keyboard
+[04:56:01.056] event14 - gpio_keys: device is a keyboard
+[04:56:01.058] event0  - meta_event: is tagged by udev as: Keyboard
+[04:56:01.058] event0  - meta_event: device is a keyboard
+[04:56:01.060] event10 - magnetic_sensor: not tagged as supported input device
+[04:56:01.060] event10 - not using input device '/dev/input/event10'
+[04:56:01.061] event11 - proximity_sensor: not tagged as supported input device
+[04:56:01.061] event11 - not using input device '/dev/input/event11'
+[04:56:01.062] event12 - light_sensor: is tagged by udev as: Keyboard
+[04:56:01.062] event12 - light_sensor: device is a keyboard
+[04:56:01.064] event4  - accelerometer_sensor: not tagged as supported input device
+[04:56:01.064] event4  - not using input device '/dev/input/event4'
+[04:56:01.065] event5  - gyro_sensor: not tagged as supported input device
+[04:56:01.065] event5  - not using input device '/dev/input/event5'
+[04:56:01.066] event6  - SignificantMotionDetector: not tagged as supported input device
+[04:56:01.066] event6  - not using input device '/dev/input/event6'
+[04:56:01.067] event7  - tilt_sensor: not tagged as supported input device
+[04:56:01.067] event7  - not using input device '/dev/input/event7'
+[04:56:01.068] event8  - step_cnt_sensor: not tagged as supported input device
+[04:56:01.068] event8  - not using input device '/dev/input/event8'
+[04:56:01.069] event9  - step_det_sensor: not tagged as supported input device
+[04:56:01.069] event9  - not using input device '/dev/input/event9'
+[04:56:01.092] Touchscreen - sec_touchscreen - /sys/devices/platform/13870000.i2c/i2c-11/11-0048/input/input1/event1
+[04:56:01.092] input device event1 has no enabled output associated (none named), skipping calibration for now.
+[04:56:01.092] [+] decon: Udev input successfully initialized on seat0
+[04:56:01.092] Color manager: no-op
+                 protocol support: no
+[04:56:01.093] Output 'DECON-0' attempts EOTF mode SDR and colorimetry mode default.
+[04:56:01.093] Output 'DECON-0' using color profile: stock sRGB color profile
+[04:56:01.093] Chosen EGL config details: id:   9 rgba: 8 8 8 0 buf: 24 dep:  0 stcl: 0 int: 0-1 type: win|pbf|swap_preserved vis_id: 0x2
+[04:56:01.093] [+] decon [GL]: Successfully initialized GL output surface (1080x2340) on HWCNativeWindow
+[04:56:01.093] associating input device event13 with output DECON-0 (none by udev)
+[04:56:01.093] associating input device event1 with output DECON-0 (none by udev)
+[04:56:01.094] associating input device event3 with output DECON-0 (none by udev)
+[04:56:01.094] associating input device event14 with output DECON-0 (none by udev)
+[04:56:01.094] associating input device event0 with output DECON-0 (none by udev)
+[04:56:01.094] associating input device event12 with output DECON-0 (none by udev)
+[04:56:01.094] Output 'DECON-0' enabled with head(s) DECON-0
+[04:56:01.094] Compositor capabilities:
+               arbitrary surface rotation: yes
+               screen capture uses y-flip: yes
+               cursor planes: no
+               arbitrary resolutions: no
+               view mask clipping: yes
+               explicit sync: no
+               color operations: no
+               presentation clock: CLOCK_MONOTONIC_RAW, id 4
+               presentation clock resolution: 0.000000001 s
+[04:56:01.094] Loading module '/usr/lib/weston/desktop-shell.so'
+[04:56:01.096] launching '/usr/libexec/weston-keyboard'
+[04:56:01.098] launching '/usr/libexec/weston-desktop-shell'
+[04:56:01.166] [+] decon [GL]: Hardware frame #1 presented to DECON Window 3 (DMA-BUF FD 38, acquire fence 44, retire fence 43)
+[04:56:01.180] [+] decon: Retire fence #1 signaled (interval: 0.00 ms, render: 59.73 ms, present: 0.00 ms, flags 0x1)
+[04:56:01.355] [+] decon [GL]: Hardware frame #2 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 49, retire fence 48)
+[04:56:01.363] [+] decon: Retire fence #2 signaled (interval: 183.00 ms, render: 5.84 ms, present: 0.00 ms, flags 0x1)
+[04:56:01.396] [+] decon [GL]: Hardware frame #3 presented to DECON Window 3 (DMA-BUF FD 38, acquire fence 48, retire fence 50)
+[04:56:01.413] [+] decon: Retire fence #3 signaled (interval: 50.02 ms, render: 1.38 ms, present: 0.00 ms, flags 0x1)
+[04:56:01.424] [+] decon [GL]: Hardware frame #4 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 53, retire fence 54)
+[04:56:01.430] [+] decon: Retire fence #4 signaled (interval: 16.67 ms, render: 0.98 ms, present: 0.00 ms, flags 0x1)
+[04:56:01.565] [+] decon [GL]: Hardware frame #5 presented to DECON Window 3 (DMA-BUF FD 38, acquire fence 49, retire fence 54)
+[04:56:01.580] [+] decon: Retire fence #5 signaled (interval: 150.05 ms, render: 125.40 ms, present: 0.00 ms, flags 0x1)
+[04:56:03.297] [+] decon [GL]: Hardware frame #60 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 49, retire fence 54)
+[04:56:03.314] [+] decon: Retire fence #60 signaled (interval: 33.30 ms, render: 5.24 ms, present: 0.00 ms, flags 0x1)
+[04:56:04.512] [+] decon [GL]: Hardware frame #120 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 49, retire fence 54)
+[04:56:04.514] [+] decon: Retire fence #120 signaled (interval: 16.86 ms, render: 3.54 ms, present: 0.00 ms, flags 0x1)
+[04:56:05.512] [+] decon [GL]: Hardware frame #180 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 53, retire fence 54)
+[04:56:05.514] [+] decon: Retire fence #180 signaled (interval: 16.15 ms, render: 3.59 ms, present: 0.00 ms, flags 0x1)
+[04:56:06.529] [+] decon [GL]: Hardware frame #240 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 53, retire fence 54)
+[04:56:06.533] [+] decon: Retire fence #240 signaled (interval: 17.67 ms, render: 3.52 ms, present: 0.00 ms, flags 0x1)
+[04:56:07.529] [+] decon [GL]: Hardware frame #300 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 53, retire fence 54)
+[04:56:07.532] [+] decon: Retire fence #300 signaled (interval: 16.78 ms, render: 3.53 ms, present: 0.00 ms, flags 0x1)
+[04:56:08.543] [+] decon [GL]: Hardware frame #360 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 53, retire fence 54)
+[04:56:08.548] [+] decon: Retire fence #360 signaled (interval: 16.76 ms, render: 1.88 ms, present: 0.00 ms, flags 0x1)
+[04:56:09.545] [+] decon [GL]: Hardware frame #420 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 53, retire fence 54)
+[04:56:09.549] [+] decon: Retire fence #420 signaled (interval: 16.76 ms, render: 3.03 ms, present: 0.00 ms, flags 0x1)
+[04:56:10.544] [+] decon [GL]: Hardware frame #480 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 49, retire fence 54)
+[04:56:10.549] [+] decon: Retire fence #480 signaled (interval: 16.69 ms, render: 1.65 ms, present: 0.00 ms, flags 0x1)
+[04:56:11.561] [+] decon [GL]: Hardware frame #540 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 49, retire fence 54)
+[04:56:11.566] [+] decon: Retire fence #540 signaled (interval: 16.68 ms, render: 2.06 ms, present: 0.00 ms, flags 0x1)
+[04:56:12.579] [+] decon [GL]: Hardware frame #600 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 49, retire fence 54)
+[04:56:12.583] [+] decon: Retire fence #600 signaled (interval: 16.69 ms, render: 2.50 ms, present: 0.00 ms, flags 0x1)
+[04:56:13.581] [+] decon [GL]: Hardware frame #660 presented to DECON Window 3 (DMA-BUF FD 41, acquire fence 45, retire fence 43)
+[04:56:13.583] [+] decon: Retire fence #660 signaled (interval: 16.78 ms, render: 4.86 ms, present: 0.00 ms, flags 0x1)
+[04:56:14.519] caught signal 12
+[04:56:14.523] output for input device event13 removed
+[04:56:14.524] output for input device event1 removed
+[04:56:14.524] output for input device event3 removed
+[04:56:14.524] output for input device event14 removed
+[04:56:14.524] output for input device event0 removed
+[04:56:14.524] output for input device event12 removed
+[04:56:14.530] event13 - Codec3035 Headset Events: device removed
+[04:56:14.530] event1  - sec_touchscreen: device removed
+[04:56:14.531] event3  - sec_touchpad: device removed
+[04:56:14.531] event14 - gpio_keys: device removed
+[04:56:14.531] event0  - meta_event: device removed
+[04:56:14.531] event12 - light_sensor: device removed
