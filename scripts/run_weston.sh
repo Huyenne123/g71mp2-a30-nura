@@ -3,18 +3,14 @@
 BUNDLE_DIR="/opt/weston-decon"
 
 cleanup() {
+    trap - EXIT INT TERM
     echo ""
     echo "[*] Restoring Sxmo desktop service (tinydm)..."
-    pkill -KILL -x weston-simple-egl 2>/dev/null || true
-    pkill -KILL -x weston-simple-touch 2>/dev/null || true
-    pkill -KILL -x weston-keyboard 2>/dev/null || true
-    pkill -KILL -x weston-desktop-shell 2>/dev/null || true
-    pkill -KILL -x weston 2>/dev/null || true
+    killall -9 weston-simple-egl weston-simple-touch weston-keyboard weston-desktop-shell weston 2>/dev/null || true
     rm -f /usr/lib/libweston-14 /usr/lib/weston /usr/lib/libhybris /usr/share/weston 2>/dev/null || true
-    echo 1 > /sys/class/graphics/fb0/blank 2>/dev/null || true
-    sleep 0.1
-    echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null || true
-    rc-service tinydm start >/dev/null 2>&1 || true
+    killall -9 Xorg dwm lisgd st 2>/dev/null || true
+    rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
+    rc-service tinydm restart >/dev/null 2>&1 || true
     echo "[+] Sxmo restored successfully."
 }
 
@@ -42,11 +38,13 @@ chmod 666 /dev/input/event* 2>/dev/null || true
 
 echo "[*] Stopping Xorg / Sxmo desktop service (tinydm)..."
 rc-service tinydm stop
-sleep 1
+killall -9 Xorg dwm lisgd st 2>/dev/null || true
+rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
+sleep 0.5
 
+rm -rf /tmp/weston-runtime
 mkdir -p /tmp/weston-runtime
 chmod 700 /tmp/weston-runtime
-rm -f /tmp/weston-runtime/wayland-* 2>/dev/null || true
 
 export XDG_RUNTIME_DIR="/tmp/weston-runtime"
 export WAYLAND_DISPLAY="wayland-0"

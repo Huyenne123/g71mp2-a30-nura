@@ -125,8 +125,9 @@ finish_frame_timer_handler(void *data)
 		output->current_retire_fence = -1;
 	}
 
+	uint32_t flags = output->is_gl_renderer ? WP_PRESENTATION_FEEDBACK_KIND_VSYNC : WP_PRESENTATION_FEEDBACK_INVALID;
 	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
-	weston_output_finish_frame(&output->base, &ts, WP_PRESENTATION_FEEDBACK_INVALID);
+	weston_output_finish_frame(&output->base, &ts, flags);
 
 	if (!output->is_gl_renderer) {
 		output->active_idx ^= 1;
@@ -160,10 +161,9 @@ decon_weston_gl_present_cb(void *user_data, struct ANativeWindow *window,
 	struct decon_output *output = user_data;
 	int dma_buf_fd;
 	int acquire_fence;
-	struct decon_win_config_data win_data;
 	int fb_fd;
-	int ret;
 	int i;
+	void *src_ptr = NULL;
 
 	(void)window;
 	assert(output);
@@ -177,103 +177,56 @@ decon_weston_gl_present_cb(void *user_data, struct ANativeWindow *window,
 	acquire_fence = HWCNativeBufferGetFence(buffer);
 	fb_fd = output->backend->fb_fd;
 
-	if (fb_fd < 0) {
-		weston_log("[-] decon [GL]: Invalid fb_fd in GL present callback\n");
-		if (acquire_fence >= 0)
-			close(acquire_fence);
-		return;
-	}
-
-	memset(&win_data, 0, sizeof(win_data));
-	win_data.fence = -1;
-
-	for (i = 0; i < 5; i++) {
-		win_data.config[i].state = 0;
-		win_data.config[i].fd_idma[0] = -1;
-		win_data.config[i].fd_idma[1] = -1;
-		win_data.config[i].fd_idma[2] = -1;
-		win_data.config[i].fence_fd = -1;
-		win_data.config[i].rel_fence = -1;
-	}
-
-	win_data.config[3].state = 2; /* DECON_WIN_STATE_BUFFER */
-	win_data.config[3].fd_idma[0] = dma_buf_fd;
-	win_data.config[3].fence_fd = acquire_fence;
-	win_data.config[3].plane_alpha = 255;
-	win_data.config[3].blending = 0;
-	win_data.config[3].idma_type = 0;
-	win_data.config[3].format = 2; /* HAL_PIXEL_FORMAT_RGBA_8888 */
-	win_data.config[3].src_x = 0;
-	win_data.config[3].src_y = 0;
-	win_data.config[3].src_w = output->mode.width;
-	win_data.config[3].src_h = output->mode.height;
-	win_data.config[3].dst_x = 0;
-	win_data.config[3].dst_y = 0;
-	win_data.config[3].dst_w = output->mode.width;
-	win_data.config[3].dst_h = output->mode.height;
-
-	ret = ioctl(fb_fd, S3CFB_WIN_CONFIG_IOCTL, &win_data);
-	if (ret < 0) {
-		weston_log("[-] decon [GL]: S3CFB_WIN_CONFIG ioctl failed: %s\n",
-			   strerror(errno));
-	}
-
-	/* FIND-045: Reclaim userspace acquire fence FD immediately */
 	if (acquire_fence >= 0) {
 		close(acquire_fence);
 	}
 
-	/* FIND-037: Reclaim release fence FDs */
-	for (i = 0; i < 5; i++) {
-		if (win_data.config[i].rel_fence >= 0) {
-			close(win_data.config[i].rel_fence);
-			win_data.config[i].rel_fence = -1;
+	if (fb_fd < 0) {
+		weston_log("[-] decon [GL]: Invalid fb_fd in GL present callback\n");
+		return;
+	}
+
+	/* Cache or retrieve CPU mapping of Gralloc ION DMA-BUF */
+	for (i = 0; i < DECON_MAX_GL_BUFFERS; i++) {
+		if (output->gl_buf_cache[i].buf == buffer) {
+			src_ptr = output->gl_buf_cache[i].mmap_ptr;
+			break;
+		}
+		if (!output->gl_buf_cache[i].buf) {
+			output->gl_buf_cache[i].buf = buffer;
+			output->gl_buf_cache[i].mmap_ptr = mmap(NULL, 1088 * output->mode.height * 4,
+								PROT_READ, MAP_SHARED, dma_buf_fd, 0);
+			src_ptr = output->gl_buf_cache[i].mmap_ptr;
+			break;
 		}
 	}
 
-	/* Guard against stale retire fence */
-	if (output->fence_source) {
-		wl_event_source_remove(output->fence_source);
-		output->fence_source = NULL;
-	}
-	if (output->current_retire_fence >= 0) {
-		close(output->current_retire_fence);
-		output->current_retire_fence = -1;
-	}
+	/* Perform stride-corrected 2D scanout to /dev/fb0 and trigger AMOLED GRAM transfer */
+	if (output->fb_mmap && src_ptr) {
+		const size_t gralloc_line_bytes = 1088 * 4;
+		const size_t fb_line_bytes = output->mode.width * 4;
+		char *src = (char *)src_ptr;
+		char *dst = (char *)output->fb_mmap;
+		int height = output->mode.height;
 
-	/* Pass retire fence back to Gralloc to guard buffer reuse */
-	if (win_data.fence >= 0) {
-		HWCNativeBufferSetFence(buffer, dup(win_data.fence));
-
-		struct wl_event_loop *loop =
-			wl_display_get_event_loop(output->base.compositor->wl_display);
-
-		output->current_retire_fence = win_data.fence;
-		output->fence_source = wl_event_loop_add_fd(
-			loop,
-			win_data.fence,
-			WL_EVENT_READABLE,
-			decon_fence_handler,
-			output
-		);
-
-		if (!output->fence_source) {
-			weston_log("[-] decon [GL]: Failed to attach retire fence to event loop\n");
-			close(win_data.fence);
-			output->current_retire_fence = -1;
-			wl_event_source_timer_update(output->finish_frame_timer, 16);
-		} else {
-			/* FIND-050: Arm 100ms watchdog timer to prevent compositor freeze if fence drops */
-			wl_event_source_timer_update(output->finish_frame_timer, 100);
+		for (int y = 0; y < height; y++) {
+			memcpy(dst + y * fb_line_bytes, src + y * gralloc_line_bytes, fb_line_bytes);
 		}
-	} else {
-		wl_event_source_timer_update(output->finish_frame_timer, 16);
+
+		output->fb_var.xoffset = 0;
+		output->fb_var.yoffset = 0;
+		ioctl(fb_fd, FBIOPAN_DISPLAY, &output->fb_var);
+	}
+
+	/* Schedule frame completion in event loop after repaint_output returns */
+	if (output->finish_frame_timer) {
+		wl_event_source_timer_update(output->finish_frame_timer, 1);
 	}
 
 	output->gl_repaint_count++;
 	if (output->gl_repaint_count <= 5 || output->gl_repaint_count % 60 == 0) {
-		weston_log("[+] decon [GL]: Hardware frame #%u presented to DECON Window 3 (DMA-BUF FD %d, acquire fence %d, retire fence %d)\n",
-			   output->gl_repaint_count, dma_buf_fd, acquire_fence, win_data.fence);
+		weston_log("[+] decon [GL]: Hardware frame #%u presented to physical AMOLED glass via fb0 (DMA-BUF FD %d)\n",
+			   output->gl_repaint_count, dma_buf_fd);
 	}
 }
 #endif
@@ -487,6 +440,23 @@ decon_output_enable(struct weston_output *base)
 
 		weston_log("[+] decon [GL]: Successfully initialized GL output surface (%dx%d) on HWCNativeWindow\n",
 			   output->mode.width, output->mode.height);
+
+		struct fb_fix_screeninfo fix;
+		output->fb_mmap = NULL;
+		output->fb_mmap_len = 0;
+		if (b->fb_fd >= 0 &&
+		    ioctl(b->fb_fd, FBIOGET_VSCREENINFO, &output->fb_var) == 0 &&
+		    ioctl(b->fb_fd, FBIOGET_FSCREENINFO, &fix) == 0) {
+			output->fb_mmap_len = fix.smem_len;
+			output->fb_mmap = mmap(0, fix.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, b->fb_fd, 0);
+			if (output->fb_mmap == MAP_FAILED) {
+				output->fb_mmap = NULL;
+				weston_log("[-] decon [GL]: Failed to mmap /dev/fb0: %s\n", strerror(errno));
+			} else {
+				weston_log("[+] decon [GL]: Successfully mapped /dev/fb0 at %p (%zu bytes)\n",
+					   output->fb_mmap, output->fb_mmap_len);
+			}
+		}
 	}
 #endif
 
@@ -594,6 +564,17 @@ decon_output_disable(struct weston_output *base)
 	if (output->is_gl_renderer && ec->renderer && ec->renderer->gl) {
 		ec->renderer->gl->output_destroy(&output->base);
 		output->native_window = NULL;
+		for (int i = 0; i < DECON_MAX_GL_BUFFERS; i++) {
+			if (output->gl_buf_cache[i].mmap_ptr) {
+				munmap(output->gl_buf_cache[i].mmap_ptr, 1088 * output->mode.height * 4);
+				output->gl_buf_cache[i].mmap_ptr = NULL;
+				output->gl_buf_cache[i].buf = NULL;
+			}
+		}
+		if (output->fb_mmap) {
+			munmap(output->fb_mmap, output->fb_mmap_len);
+			output->fb_mmap = NULL;
+		}
 	}
 #endif
 

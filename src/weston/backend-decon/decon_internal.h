@@ -34,9 +34,12 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <time.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <linux/fb.h>
 
 #include <libweston/libweston.h>
 #include "backend.h"
@@ -142,6 +145,14 @@ struct decon_output {
 
 #ifdef ENABLE_DECON_GL
 	struct ANativeWindow *native_window;
+#define DECON_MAX_GL_BUFFERS 8
+	struct {
+		struct ANativeWindowBuffer *buf;
+		void *mmap_ptr;
+	} gl_buf_cache[DECON_MAX_GL_BUFFERS];
+	void *fb_mmap;
+	size_t fb_mmap_len;
+	struct fb_var_screeninfo fb_var;
 #endif
 	bool is_gl_renderer;
 	uint32_t gl_repaint_count;
