@@ -4,7 +4,7 @@ BUNDLE_DIR="/opt/weston-decon"
 
 cleanup() {
     echo ""
-    echo "[*] Restoring Sxmo desktop..."
+    echo "[*] Restoring Sxmo desktop service (tinydm)..."
     pkill -KILL -x weston-simple-egl 2>/dev/null || true
     pkill -KILL -x weston-simple-touch 2>/dev/null || true
     pkill -KILL -x weston-keyboard 2>/dev/null || true
@@ -14,12 +14,7 @@ cleanup() {
     echo 1 > /sys/class/graphics/fb0/blank 2>/dev/null || true
     sleep 0.1
     echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null || true
-    pkill -CONT -x Xorg 2>/dev/null || true
-    pkill -CONT -x dwm 2>/dev/null || true
-    pkill -CONT -f sxmo 2>/dev/null || true
-    sleep 0.5
-    pkill -KILL -x lisgd 2>/dev/null || true
-    DISPLAY=:0 XAUTHORITY=/home/user/.Xauthority doas -u user /usr/share/sxmo/default_hooks/sxmo_hook_lisgdstart.sh >/dev/null 2>&1 &
+    rc-service tinydm start >/dev/null 2>&1 || true
     echo "[+] Sxmo restored successfully."
 }
 
@@ -45,11 +40,9 @@ chmod 666 /dev/ion 2>/dev/null || true
 chmod 666 /dev/sw_sync 2>/dev/null || true
 chmod 666 /dev/input/event* 2>/dev/null || true
 
-echo "[*] Releasing Sxmo input grab (stopping lisgd) and pausing Xorg..."
-pkill -TERM -f lisgd 2>/dev/null || true
-pkill -STOP -f Xorg 2>/dev/null || true
-pkill -STOP -f dwm 2>/dev/null || true
-pkill -STOP -f sxmo 2>/dev/null || true
+echo "[*] Stopping Xorg / Sxmo desktop service (tinydm)..."
+rc-service tinydm stop
+sleep 1
 
 mkdir -p /tmp/weston-runtime
 chmod 700 /tmp/weston-runtime
