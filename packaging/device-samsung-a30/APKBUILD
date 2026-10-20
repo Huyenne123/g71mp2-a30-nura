@@ -1,6 +1,6 @@
 # Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
 pkgname=device-samsung-a30
-pkgver=1.0.2
+pkgver=1.0.3
 pkgrel=0
 pkgdesc="postmarketOS device configuration package for Samsung Galaxy A30 (SM-A305F)"
 url="https://postmarketos.org"
@@ -38,9 +38,11 @@ a1fbd48f18236d352b4d1e4d31d3e1eab3e41dc25d42aa07ad1b71075fee110d4a741a4b0b4a630f
 "
 
 package() {
-	# Install deviceinfo
+	# Install deviceinfo (both in /usr/share/deviceinfo and /etc for mkinitfs)
 	install -Dm644 "$srcdir"/deviceinfo \
-		"$pkgdir"/etc/deviceinfo
+		"$pkgdir"/usr/share/deviceinfo/deviceinfo
+	install -d "$pkgdir"/etc
+	ln -sf /usr/share/deviceinfo/deviceinfo "$pkgdir"/etc/deviceinfo
 
 	# Install initfs hook
 	install -Dm755 "$srcdir"/initfs-hook.sh \
