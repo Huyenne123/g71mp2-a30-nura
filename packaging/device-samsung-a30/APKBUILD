@@ -21,7 +21,7 @@ source="deviceinfo
 	driver-payload.tar.gz
 	boot.img"
 subpackages=""
-options="!check"
+options="!check !tracedeps !strip"
 
 sha512sums="
 36f933443c7a8db12c96ec2ea1cde0a704dd495dbf9ff36a101bc523a801ffc3021a6d2573a2bb66446119f1199d198a9a1619234c8f9fdf5dbec5a70c4e2892  deviceinfo
