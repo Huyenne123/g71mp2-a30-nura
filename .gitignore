@@ -34,5 +34,8 @@ dist/**/*.tar.gz
 dist/**/*.img
 dist/*.zip
 dist/**/*.zip
+packaging/**/*.img
+packaging/**/*.bin
+packaging/**/*.tar.gz
 
 

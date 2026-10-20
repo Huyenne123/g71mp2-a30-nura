@@ -208,7 +208,7 @@ Research infrastructure, target verification, kernel ABI mapping, offscreen 3D h
 | **Mali GLES -> DMA-BUF -> DECON End-to-End (7C)**| **VERIFIED (10-Min Soak @ 59.96 FPS)** | `analysis/milestone-7c-gpu-decon-test.md`, `analysis/milestone-7c-bridge-audit.md`, `analysis/milestone-7c-buffer-fence-lifecycle.md` (FIND-044, FIND-045). |
 | **Weston Direct-DECON GL Renderer (7D)**| **VERIFIED (10-Min Soak @ 59.90 FPS)** | `analysis/milestone-7d-hardware-validation.md`, `analysis/milestone-7d-gl-renderer-implementation.md`, `packaging/0003-weston-14-direct-decon-gl-renderer.patch` (FIND-046..050). |
 | **Client GPU Buffer Import & Direct Boot (7E)**| **VERIFIED (660 Frames @ 60 FPS)** | `analysis/milestone-7e-client-gpu-acceleration.md`, `scripts/m7e_concurrent_test.sh`, `telemetry/milestone-7e/` (FIND-051). |
-| **postmarketOS Packaging & Direct Boot (8)**| **VERIFIED (Complete Suite)** | `analysis/milestone-8-packaging-and-direct-boot.md`, `packaging/`, `tools/mkbootimg.py`, `build/boot-direct.img`. |
+| **postmarketOS Packaging & Direct Boot (8)**| **VERIFIED (Complete Suite & Recovery ZIP)** | `analysis/milestone-8-packaging-and-direct-boot.md`, `packaging/`, `tools/mkbootimg.py`, `build/boot-direct.img`, `/tmp/postmarketOS-export/pmos-samsung-a30.zip` (FIND-052, FIND-053). |
 
 ---
 

@@ -808,3 +808,23 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Fixed & Packaged**.
 
+---
+
+### FIND-053: postmarketOS Subpartition Nested MBR Resolution & Weston Runtime Packaging
+- **Discovery Date**: 2026-10-20
+- **Milestone**: Milestone 8 / Deployment
+- **Component**: postmarketOS Android Recovery Installer (`pmos_install`) / Initramfs / Weston 14 / Alpine Linux
+- **Description**: After building and flashing an official postmarketOS recovery installer ZIP (`pmbootstrap install --android-recovery-zip --recovery-install-partition=data`), the phone entered an immediate bootloop upon power-on.
+- **Root Cause**:
+  1. **Subpartition Discovery Failure**: The recovery installer formats `userdata` (`/dev/block/mmcblk0p32`) with a nested MSDOS MBR partition table containing subpartitions `p1` (`pmOS_boot`, 256MB) and `p2` (`pmOS_root`, ~24GB). The Linux kernel eMMC driver does not parse partition tables inside partitions. Without attaching a loop device with partition scanning (`losetup -Pf`), `/dev/block/loop0p1` and `loop0p2` do not exist. Direct ext4 mounting of `mmcblk0p32` fails due to the MBR at sector 0.
+  2. **Init Exit Kernel Panic**: Standalone init dropped into `exec /bin/busybox sh` upon rootfs failure, which exited immediately on EOF (due to `console=null`), causing a fatal kernel panic (`Attempted to kill init!`) and triggering S-Boot reboot loop.
+  3. **Weston Runtime Packaging Gap**: The device package payload lacked `usr/lib/weston/` containing `libexec_weston.so.0` and `desktop-shell.so`, and lacked runtime libraries `libdrm.so.2` and `libgbm.so.1`. Adding Alpine's `mesa-gbm` caused package collisions with `mesa-gles` over libhybris hardware GLES wrappers.
+- **Resolution**:
+  1. **Initramfs Subpartition Probing**: Enhanced `/init` in `scripts/build_direct_boot.sh` to create `/dev/loop-control` and `/dev/loop0..7` and execute `losetup -Pf "$USERDATA_DEV"`, successfully mapping `pmOS_root` (`loop0p2`) and `pmOS_boot` (`loop0p1`).
+  2. **Safe Diagnostics**: Replaced init exit with a holding loop (`while true; do sleep 5; done`) to prevent watchdog/panic reboot loops.
+  3. **Complete Driver Payload**: Bundled `/usr/lib/weston/` (`libexec_weston.so.0`, `desktop-shell.so`, etc.), `libdrm.so.2`, and `libgbm.so.1` directly into `driver-payload.tar.gz`. Verified `weston --help` runs cleanly without requiring `mesa-gbm` or colliding with `mesa-gles`.
+  4. **OpenRC Service Autostart**: Configured symlinks in `default` runlevel for `seatd` and `weston` (`/etc/runlevels/default/weston` -> `/etc/init.d/weston`).
+  5. **Verification**: Built `device-samsung-a30-1.0.5-r0.apk`, regenerated `/tmp/postmarketOS-export/pmos-samsung-a30.zip` via `pmbootstrap install` and `pmbootstrap export`, and flashed it to the device in TWRP (`/sbin/twrp install /tmp/pmos-samsung-a30.zip`), verifying byte-for-byte SHA256 match on `boot.img` and complete rootfs structure on `mmcblk0p32p2`.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Fixed & Verified**.
+

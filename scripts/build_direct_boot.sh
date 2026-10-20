@@ -55,6 +55,30 @@ for i in $(seq 1 30); do
     sleep 0.1
 done
 
+# Ensure loop control and loop block devices exist
+[ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
+for i in 0 1 2 3 4 5 6 7; do
+    [ -e /dev/loop$i ] || mknod /dev/loop$i b 7 $i 2>/dev/null || true
+done
+mkdir -p /dev/block
+
+# Locate userdata partition
+USERDATA_DEV=""
+if [ -b /dev/block/by-name/userdata ]; then
+    USERDATA_DEV="/dev/block/by-name/userdata"
+elif [ -b /dev/block/mmcblk0p32 ]; then
+    USERDATA_DEV="/dev/block/mmcblk0p32"
+elif [ -b /dev/mmcblk0p32 ]; then
+    USERDATA_DEV="/dev/mmcblk0p32"
+fi
+
+# Attach loop device with partition scan (-P) on userdata if present
+if [ -n "$USERDATA_DEV" ]; then
+    echo "[*] Checking userdata partition ($USERDATA_DEV) for subpartitions..."
+    losetup -Pf "$USERDATA_DEV" 2>/dev/null || true
+    sleep 0.5
+fi
+
 mkdir -p /mnt/userdata /mnt/boot /sysroot
 
 ROOT_MOUNTED=0
@@ -62,6 +86,15 @@ ROOT_MOUNTED=0
 # Priority 1: Label pmOS_root (standard postmarketOS)
 echo "[*] Scanning for partition with label pmOS_root..."
 PMOS_ROOT_DEV=$(findfs LABEL=pmOS_root 2>/dev/null || true)
+if [ -z "$PMOS_ROOT_DEV" ]; then
+    for candidate in /dev/block/loop0p2 /dev/loop0p2 /dev/block/loop1p2 /dev/loop1p2; do
+        if [ -b "$candidate" ]; then
+            PMOS_ROOT_DEV="$candidate"
+            break
+        fi
+    done
+fi
+
 if [ -n "$PMOS_ROOT_DEV" ] && [ -b "$PMOS_ROOT_DEV" ]; then
     echo "[*] Found pmOS_root partition at $PMOS_ROOT_DEV, mounting..."
     if mount -t ext4 -o noatime "$PMOS_ROOT_DEV" /sysroot 2>/dev/null; then
@@ -71,32 +104,21 @@ if [ -n "$PMOS_ROOT_DEV" ] && [ -b "$PMOS_ROOT_DEV" ]; then
 fi
 
 # Priority 2: Direct userdata partition
-if [ $ROOT_MOUNTED -eq 0 ]; then
-    USERDATA_DEV=""
-    if [ -b /dev/block/by-name/userdata ]; then
-        USERDATA_DEV="/dev/block/by-name/userdata"
-    elif [ -b /dev/block/mmcblk0p32 ]; then
-        USERDATA_DEV="/dev/block/mmcblk0p32"
-    elif [ -b /dev/mmcblk0p32 ]; then
-        USERDATA_DEV="/dev/mmcblk0p32"
-    fi
-
-    if [ -n "$USERDATA_DEV" ]; then
-        echo "[*] Checking userdata partition ($USERDATA_DEV)..."
-        if mount -t ext4 -o noatime "$USERDATA_DEV" /mnt/userdata 2>/dev/null; then
-            if [ -x /mnt/userdata/sbin/init ] || [ -x /mnt/userdata/bin/sh ]; then
-                echo "[+] Found rootfs directly on userdata partition."
-                mount --bind /mnt/userdata /sysroot
-                ROOT_MOUNTED=1
-            elif [ -d /mnt/userdata/alpine/bin ]; then
-                echo "[+] Found Alpine Linux rootfs at /data/alpine."
-                mount --bind /mnt/userdata/alpine /sysroot
-                ROOT_MOUNTED=1
-            elif [ -f /mnt/userdata/rootfs.img ]; then
-                echo "[+] Found loopback rootfs image at /data/rootfs.img."
-                mount -t ext4 -o loop,noatime /mnt/userdata/rootfs.img /sysroot
-                ROOT_MOUNTED=1
-            fi
+if [ $ROOT_MOUNTED -eq 0 ] && [ -n "$USERDATA_DEV" ]; then
+    echo "[*] Checking userdata partition directly ($USERDATA_DEV)..."
+    if mount -t ext4 -o noatime "$USERDATA_DEV" /mnt/userdata 2>/dev/null; then
+        if [ -x /mnt/userdata/sbin/init ] || [ -x /mnt/userdata/bin/sh ]; then
+            echo "[+] Found rootfs directly on userdata partition."
+            mount --bind /mnt/userdata /sysroot
+            ROOT_MOUNTED=1
+        elif [ -d /mnt/userdata/alpine/bin ]; then
+            echo "[+] Found Alpine Linux rootfs at /data/alpine."
+            mount --bind /mnt/userdata/alpine /sysroot
+            ROOT_MOUNTED=1
+        elif [ -f /mnt/userdata/rootfs.img ]; then
+            echo "[+] Found loopback rootfs image at /data/rootfs.img."
+            mount -t ext4 -o loop,noatime /mnt/userdata/rootfs.img /sysroot
+            ROOT_MOUNTED=1
         fi
     fi
 fi
@@ -121,17 +143,27 @@ fi
 
 if [ $ROOT_MOUNTED -eq 0 ]; then
     echo "[-] FATAL: Could not locate a valid Linux rootfs!"
-    echo "[-] Entering emergency rescue shell. Kernel output on /dev/kmsg."
-    exec /bin/busybox sh
+    echo "[-] Preventing immediate reboot loop so logs can be inspected."
+    while true; do
+        sleep 5
+    done
 fi
 
 # Check for pmOS_boot partition
 PMOS_BOOT_DEV=$(findfs LABEL=pmOS_boot 2>/dev/null || true)
+if [ -z "$PMOS_BOOT_DEV" ]; then
+    for candidate in /dev/block/loop0p1 /dev/loop0p1 /dev/block/loop1p1 /dev/loop1p1; do
+        if [ -b "$candidate" ]; then
+            PMOS_BOOT_DEV="$candidate"
+            break
+        fi
+    done
+fi
 if [ -n "$PMOS_BOOT_DEV" ] && [ -b "$PMOS_BOOT_DEV" ]; then
     mkdir -p /sysroot/boot
     mount -t ext2 -o ro "$PMOS_BOOT_DEV" /sysroot/boot 2>/dev/null || \
     mount -t ext4 -o ro "$PMOS_BOOT_DEV" /sysroot/boot 2>/dev/null || true
-    echo "[+] Mounted pmOS_boot on /boot"
+    echo "[+] Mounted pmOS_boot ($PMOS_BOOT_DEV) on /boot"
 fi
 
 # Mount Android vendor and system partitions for Libhybris compatibility

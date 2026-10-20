@@ -1,6 +1,6 @@
 # Maintainer: postmarketOS Graphics Team <graphics@postmarketos.org>
 pkgname=device-samsung-a30
-pkgver=1.0.3
+pkgver=1.0.5
 pkgrel=0
 pkgdesc="postmarketOS device configuration package for Samsung Galaxy A30 (SM-A305F)"
 url="https://postmarketos.org"
@@ -31,8 +31,8 @@ be07fbed0100adcb3ad1f4d605b18fa0c4f3bcd5c3dbfdd45d16afda9e680c1c0b05cd3d8fda3edb
 a1fbd48f18236d352b4d1e4d31d3e1eab3e41dc25d42aa07ad1b71075fee110d4a741a4b0b4a630fe156b76b06b8e98583989cdc1f2562e709703f35cf79ff68  weston.ini
 208e40335ee3eb52194a96ee8d83c04ce4a8063ecbd02b088ff3fbfe2d3634756075468a45d43233bc3724cebfc14096b7c56a911ecfa814e2dbd7e8a518e46d  weston.initd
 0ce11336b955eae20e95190f7b8f82c25527f1dab189f923041c065444bc0aecea1a609b1ea9bff98f2dfc7f79a72f59e297a3a94dc4426ba8d6c520c5ad3104  99-mali-decon.rules
-9ce594a7e10f21210d056efd0b772f172ceabdedfa6479dba79d5b834b85aac53973155dd51978eb462289dc4807fe2daa7dc650066cff99592295c842fb66af  driver-payload.tar.gz
-7565d15c68f82984f66f5179260ea27805607e3f223be036bb70651579b4428cb5a24e6b61b780be2ced4e86ecdd53ab3d1f61483566940d32fd78ee2bc19298  boot.img
+c7953ddbb27fbee8b386df7fbad15187191eb78345917ac1660d34712f8a581a2a370de552924e54cb9948562f922c985777b868286760c96e8b60b79b167461  driver-payload.tar.gz
+ed38b816238e9e9fc4ff7329fa8c1aa1f3f0c85095d909f76f59d773a9e55fb0b35abe4916b8ac7fae6ac6339d1a8b75d6e8c84a241de549586d7893eab28054  boot.img
 33dda1642dd1fce0372f494cef4712cb6601ce8488caaf5015da8f539c4f19d230315734e40a9de534fb46f3c27a0796b0198a5969415d1ded6aa34d68a5359d  kernel.release
 94e9f62303df258a6f32027f3ed67b270f427d820929efef10f68264a678588d2c56bc7f70cba276b62c5d19ac15ae7b9f73813e0ce5e89793744b1817cf6730  kernel-patched.bin
 "
@@ -52,9 +52,12 @@ package() {
 	install -Dm644 "$srcdir"/weston.ini \
 		"$pkgdir"/etc/xdg/weston/weston.ini
 
-	# Install OpenRC service
+	# Install OpenRC service and enable it in default runlevel
 	install -Dm755 "$srcdir"/weston.initd \
 		"$pkgdir"/etc/init.d/weston
+	mkdir -p "$pkgdir"/etc/runlevels/default
+	ln -sf /etc/init.d/weston "$pkgdir"/etc/runlevels/default/weston
+	ln -sf /etc/init.d/seatd "$pkgdir"/etc/runlevels/default/seatd
 
 	# Install udev hardware rules
 	install -Dm644 "$srcdir"/99-mali-decon.rules \
@@ -70,7 +73,7 @@ package() {
 	mkdir -p "$pkgdir"/lib/modules/4.4.302-samsung-a30
 	touch "$pkgdir"/lib/modules/4.4.302-samsung-a30/modules.dep
 
-	# Unpack prebuilt driver payload (libhybris, weston-decon, gl-renderer)
+	# Unpack prebuilt driver payload (libhybris, weston-decon, gl-renderer, libexec_weston, shells)
 	mkdir -p "$pkgdir"/usr
 	tar -zxf "$srcdir"/driver-payload.tar.gz -C "$pkgdir"
 
