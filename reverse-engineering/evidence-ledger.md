@@ -795,6 +795,16 @@ This ledger records every verified finding, observed binary behavior, and archit
 - **Confidence Level**: Confirmed Fact (100%).
 - **Status**: **Verified**.
 
+---
 
-
+### FIND-052: Samsung S-Boot skip_initramfs Bypass & TWRP Recovery Flashable Zip Packaging
+- **Discovery Date**: 2026-10-20
+- **Milestone**: Milestone 8 / Deployment
+- **Component**: Samsung S-Boot Bootloader / Linux 4.4 Kernel / TWRP Recovery
+- **Description**: When flashing a custom `boot.img` containing a standalone direct boot initramfs to `/dev/block/by-name/boot`, normal power-on boots bypassed the initramfs and booted directly into LineageOS. Analysis of `/proc/cmdline` revealed that Samsung S-Boot injects `skip_initramfs root=/dev/mmcblk0p25 init=/init` during normal boot. In Linux kernel `init/initramfs.c`, `__setup("skip_initramfs", skip_initramfs_param)` sets `do_skip_initramfs = 1`, causing the kernel to completely ignore the ramdisk packed in `boot.img` and pivot directly to the Android `system` partition (`/dev/mmcblk0p25`).
+- **Resolution**:
+  1. **Kernel Binary Patch**: Binary-patched `skip_initramfs` (14 bytes) in the kernel binary `Image` at offset `0x15bc1da` to `skip_xxxxxxxxx`. The bootloader argument is unrecognized, keeping `do_skip_initramfs = 0` and forcing the kernel to process and execute the standalone initramfs.
+  2. **TWRP Recovery Flashable ZIP**: Created `dist/pmos-samsung-a30.zip` (292 MB) adhering to the postmarketOS/Nura wiki specification (`META-INF/com/google/android/update-binary`), which flashes the patched `boot.img` and unpacks `rootfs.tar.gz` into `/data/alpine` via TWRP recovery.
+- **Confidence Level**: Confirmed Fact (100%).
+- **Status**: **Fixed & Packaged**.
 

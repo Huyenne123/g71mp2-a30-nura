@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build"
 INITFS_DIR="${BUILD_DIR}/initfs"
 TOOLS_DIR="${ROOT_DIR}/tools"
-KERNEL_BIN="${ROOT_DIR}/artifacts/extracted/stock_boot_unpacked/kernel"
+KERNEL_BIN="${ROOT_DIR}/artifacts/extracted/stock_boot_unpacked/kernel-patched.bin"
 OUTPUT_BOOT="${BUILD_DIR}/boot-direct.img"
 
 echo "[*] Initializing Standalone Direct Boot Image Generator..."

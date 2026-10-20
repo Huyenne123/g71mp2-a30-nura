@@ -32,5 +32,7 @@ build/
 artifacts/extracted/stock_boot_unpacked/
 dist/**/*.tar.gz
 dist/**/*.img
+dist/*.zip
+dist/**/*.zip
 
 
