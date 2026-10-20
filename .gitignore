@@ -30,5 +30,7 @@ __pycache__/
 scratch/
 build/
 artifacts/extracted/stock_boot_unpacked/
+dist/**/*.tar.gz
+dist/**/*.img
 
 
