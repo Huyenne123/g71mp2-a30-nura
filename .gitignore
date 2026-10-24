@@ -39,3 +39,4 @@ packaging/**/*.bin
 packaging/**/*.tar.gz
 
 
+*.zip

@@ -56,20 +56,18 @@ export HYBRIS_EGLPLATFORM="hwcomposer"
 export LIBEGL="/vendor/lib64/egl/libGLES_mali.so"
 export LIBGLESV2="/vendor/lib64/egl/libGLES_mali.so"
 
-# Launch Fullscreen GPU 3D rotating triangle demo as soon as Weston creates wayland-0
+# Optional client auto-launch: pass CLIENT=<cmd> or start desktop shell by default
+if [ -n "$AUTO_CLIENT" ]; then
 (
     while [ ! -S /tmp/weston-runtime/wayland-0 ]; do sleep 0.2; done
     sleep 0.5
-    echo "[*] Auto-launching Fullscreen GPU 3D rotating triangle demo..."
+    echo "[*] Auto-launching client: $AUTO_CLIENT"
     export XDG_RUNTIME_DIR="/tmp/weston-runtime"
     export WAYLAND_DISPLAY="wayland-0"
-    export LD_LIBRARY_PATH="/opt/weston-decon/usr/lib:/opt/weston-decon/usr/lib/weston:/usr/lib"
-    export HYBRIS_LD_LIBRARY_PATH="/vendor/lib64:/vendor/lib64/hw:/vendor/lib64/egl:/system/lib64"
-    export EGL_PLATFORM="wayland"
-    export LIBEGL="/vendor/lib64/egl/libGLES_mali.so"
-    export LIBGLESV2="/vendor/lib64/egl/libGLES_mali.so"
-    /opt/weston-decon/usr/bin/weston-simple-egl -f >/tmp/demo.log 2>&1 &
+    export LD_LIBRARY_PATH="${BUNDLE_DIR}/usr/lib:${BUNDLE_DIR}/usr/lib/weston:/usr/lib"
+    $AUTO_CLIENT >/tmp/client.log 2>&1 &
 ) &
+fi
 
 echo "[*] Starting Weston 14 Direct-DECON GL compositor on physical AMOLED display..."
 echo "[*] Press Ctrl+C at any time in this terminal to exit and return to Sxmo."
