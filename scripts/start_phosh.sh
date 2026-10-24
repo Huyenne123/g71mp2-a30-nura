@@ -10,6 +10,7 @@ cleanup() {
     kill -INT $WESTON_PID 2>/dev/null || true
     sleep 1
     killall -9 phoc phosh gnome-session weston 2>/dev/null || true
+    rm -f /run/user/10000/wayland-0 /tmp/weston-runtime/wayland-* 2>/dev/null || true
     rc-service tinydm restart >/dev/null 2>&1 || true
     echo "[+] Sxmo restored successfully."
 }
@@ -35,7 +36,7 @@ sleep 0.5
 
 rm -rf /tmp/weston-runtime
 mkdir -p /tmp/weston-runtime
-chmod 700 /tmp/weston-runtime
+chmod 777 /tmp/weston-runtime
 
 export XDG_RUNTIME_DIR="/tmp/weston-runtime"
 export WAYLAND_DISPLAY="wayland-0"
@@ -47,6 +48,7 @@ export HYBRIS_EGLPLATFORM="hwcomposer"
 export LIBEGL="/vendor/lib64/egl/libGLES_mali.so"
 export LIBGLESV2="/vendor/lib64/egl/libGLES_mali.so"
 
+rm -f /tmp/weston.log
 echo "[*] Starting hardware-accelerated Weston master compositor..."
 "${BUNDLE_DIR}/usr/bin/weston" \
     --backend=decon \
@@ -66,24 +68,44 @@ while [ ! -S /tmp/weston-runtime/wayland-0 ]; do
         exit 1
     fi
 done
+chmod 666 /tmp/weston-runtime/wayland-0
+chmod 777 /tmp/weston-runtime
+
+# Map wayland-0 into user session runtime directory
+mkdir -p /run/user/10000
+chown user:user /run/user/10000
+chmod 700 /run/user/10000
+rm -f /run/user/10000/wayland-*
+ln -sf /tmp/weston-runtime/wayland-0 /run/user/10000/wayland-0
+chown -h user:user /run/user/10000/wayland-0
+
 echo "[+] Weston active on physical AMOLED display."
 sleep 0.5
 
-unset EGL_PLATFORM HYBRIS_EGLPLATFORM LIBEGL LIBGLESV2
-export WAYLAND_DISPLAY="wayland-0"
-export WLR_BACKENDS="wayland"
-export WLR_RENDERER="pixman"
-export XDG_CURRENT_DESKTOP="GNOME:Phosh"
-export DESKTOP_SESSION="phosh"
-export GSK_RENDERER="cairo"
-export GDK_DEBUG="gl-disable"
-export GLYCIN_DISABLE_SANDBOX=1
-export LD_PRELOAD="/usr/local/lib/libfaccessat_fix.so"
+rm -f /tmp/phosh.log
+touch /tmp/phosh.log
+chown user:user /tmp/phosh.log
 
-echo "[*] Launching Phoc + Phosh mobile desktop..."
+echo "[*] Launching Phoc + Phosh mobile desktop as user 'user' (UID 10000)..."
 echo "[*] Press Ctrl+C at any time to exit Phosh and return to Sxmo."
 
-dbus-run-session /usr/sbin/phoc -C /home/user/phoc-decon.ini -E "/usr/sbin/gnome-session --session=phosh" -v > /tmp/phosh.log 2>&1 &
+runuser -u user -- sh -c '
+    export HOME="/home/user"
+    export USER="user"
+    export LOGNAME="user"
+    export XDG_RUNTIME_DIR="/run/user/10000"
+    export WAYLAND_DISPLAY="wayland-0"
+    export WLR_BACKENDS="wayland"
+    export WLR_RENDERER="pixman"
+    export XDG_CURRENT_DESKTOP="GNOME:Phosh"
+    export DESKTOP_SESSION="phosh"
+    export GSK_RENDERER="cairo"
+    export GDK_DEBUG="gl-disable"
+    export GLYCIN_DISABLE_SANDBOX=1
+    export LD_PRELOAD="/usr/local/lib/libfaccessat_fix.so"
+
+    exec dbus-run-session /usr/sbin/phoc -C /home/user/phoc-decon.ini -E "/usr/sbin/gnome-session --session=phosh" -v > /tmp/phosh.log 2>&1
+' &
 PHOC_PID=$!
 
 wait $PHOC_PID
