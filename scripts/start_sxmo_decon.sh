@@ -10,8 +10,14 @@ cleanup() {
     kill -TERM $XWAYLAND_PID 2>/dev/null || true
     kill -INT $WESTON_PID 2>/dev/null || true
     sleep 1
-    killall -9 dwm sxmobar lisgd st Xwayland weston 2>/dev/null || true
-    rm -f /tmp/.X0-lock /tmp/.X11-unix/X0 /run/user/10000/wayland-0 2>/dev/null || true
+    killall -9 dwm sxmobar lisgd st Xwayland weston superd 2>/dev/null || true
+    for i in $(seq 1 30); do
+        if ! netstat -xl 2>/dev/null | grep -q '/tmp/\.X11-unix/X0'; then
+            break
+        fi
+        sleep 0.1
+    done
+    rm -rf /tmp/.X*-lock /tmp/.X11-unix/X* /run/user/10000/wayland-* /run/user/10000/superd.sock /run/user/10000/dbus.bus 2>/dev/null || true
     rc-service tinydm restart >/dev/null 2>&1 || true
     echo "[+] Native Sxmo restored successfully."
 }
@@ -34,9 +40,17 @@ echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/d
 echo 676000 > /sys/class/misc/mali0/device/dvfs_min_lock 2>/dev/null || true
 
 echo "[*] Stopping native unaccelerated Xorg/tinydm..."
-rc-service tinydm stop
-killall -9 Xorg dwm lisgd st 2>/dev/null || true
-rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
+rc-service tinydm stop >/dev/null 2>&1 || true
+killall -9 Xwayland Xorg xinit startx dwm sxmobar lisgd st superd weston tinydm-run-session firefox-esr 2>/dev/null || true
+
+for i in $(seq 1 30); do
+    if ! netstat -xl 2>/dev/null | grep -q '/tmp/\.X11-unix/X0'; then
+        break
+    fi
+    sleep 0.1
+done
+
+rm -rf /tmp/.X*-lock /tmp/.X11-unix/X* /run/user/10000/superd.sock /run/user/10000/wayland-* /run/user/10000/dbus.bus /home/user/.Xauthority 2>/dev/null || true
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
 sleep 0.5
@@ -81,45 +95,69 @@ chmod 777 /tmp/weston-runtime
 mkdir -p /run/user/10000
 chown user:user /run/user/10000
 chmod 700 /run/user/10000
-rm -f /run/user/10000/wayland-*
+rm -f /run/user/10000/wayland-* /run/user/10000/superd.sock
 ln -sf /tmp/weston-runtime/wayland-0 /run/user/10000/wayland-0
 chown -h user:user /run/user/10000/wayland-0
 
 echo "[+] Weston active on physical AMOLED display (1080x2340 GL)."
 sleep 0.5
 
-echo "[*] Starting rootful Xwayland on :0..."
+echo "[*] Starting rootful Xwayland on :0 (-dpi 288 phone scaling)..."
 rm -f /tmp/.X0-lock /tmp/.X11-unix/X0 /tmp/xwayland.log
 
 runuser -u user -- sh -c '
     export WAYLAND_DISPLAY="wayland-0"
     export XDG_RUNTIME_DIR="/run/user/10000"
-    exec /usr/bin/Xwayland :0 -geometry 1080x2340 -fullscreen -ac -retro > /tmp/xwayland.log 2>&1
+    exec /usr/bin/Xwayland :0 -geometry 1080x2340 -fullscreen -dpi 288 -fakescreenfps 60 +bs -ac -retro > /tmp/xwayland.log 2>&1
 ' &
 XWAYLAND_PID=$!
 
 COUNT=0
-while [ ! -S /tmp/.X11-unix/X0 ]; do
+while ! DISPLAY=:0 xset q >/dev/null 2>&1; do
     sleep 0.1
     COUNT=$((COUNT + 1))
-    if [ $COUNT -gt 50 ]; then
-        echo "[-] Timeout waiting for /tmp/.X11-unix/X0"
+    if [ $COUNT -gt 60 ]; then
+        echo "[-] Timeout waiting for Xwayland :0 ready"
         cat /tmp/xwayland.log
         exit 1
     fi
 done
 echo "[+] X11 display :0 active via Xwayland (Hardware GPU presentation)."
 
+# Pre-seed xrdb resources immediately before any X11 client connects
+runuser -u user -- sh -c '
+    export DISPLAY=":0"
+    if [ -f /home/user/.Xresources ]; then
+        xrdb -merge /home/user/.Xresources
+    fi
+    echo "Xft.dpi: 288" | xrdb -merge
+    if [ -f /home/user/.config/sxmo/conky.conf ]; then
+        sed -i "s/out_to_wayland = true/out_to_wayland = false/g" /home/user/.config/sxmo/conky.conf
+    fi
+'
+
 echo "[*] Launching Sxmo (dwm) session on :0..."
 echo "[*] Press Ctrl+C at any time to exit and return to native Sxmo."
 
 runuser -u user -- sh -c '
+    export PATH="/home/user/.config/sxmo/hooks:/usr/share/sxmo/default_hooks:/home/user/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+    . /etc/profile
+    [ -f /etc/profile.d/sxmo_init.sh ] && . /etc/profile.d/sxmo_init.sh
+    export PATH="/home/user/.config/sxmo/hooks:/usr/share/sxmo/default_hooks:/usr/local/bin:$PATH"
     export DISPLAY=":0"
-    export WAYLAND_DISPLAY="wayland-0"
+    unset WAYLAND_DISPLAY
     export XDG_RUNTIME_DIR="/run/user/10000"
     export HOME="/home/user"
     export USER="user"
     export LOGNAME="user"
+    export SXMO_WM=dwm
+    export XDG_CURRENT_DESKTOP=dwm
+    export SXMO_TERMINAL="st"
+    export SXMO_MENU="dmenu"
+    export SXMO_MONITOR="XWAYLAND0"
+    export MOZ_USE_XINPUT2=1
+    export GDK_BACKEND=x11
+    export QT_QPA_PLATFORM=xcb
     cd /home/user
     exec dbus-run-session /usr/sbin/sxmo_dwminit.sh
 ' &

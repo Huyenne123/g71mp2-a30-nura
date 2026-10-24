@@ -39,6 +39,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <pthread.h>
 #include <linux/fb.h>
 
 #include <libweston/libweston.h>
@@ -153,6 +154,18 @@ struct decon_output {
 	void *fb_mmap;
 	size_t fb_mmap_len;
 	struct fb_var_screeninfo fb_var;
+
+	/* High-Performance Presentation Worker Thread */
+	pthread_t present_thread;
+	pthread_mutex_t present_mutex;
+	pthread_cond_t present_cond;
+	bool present_thread_running;
+	bool has_pending_present;
+	void *pending_src;
+	int damage_y1;
+	int damage_y2;
+	int pending_y1;
+	int pending_y2;
 #endif
 	bool is_gl_renderer;
 	uint32_t gl_repaint_count;

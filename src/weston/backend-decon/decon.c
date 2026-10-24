@@ -125,9 +125,15 @@ finish_frame_timer_handler(void *data)
 		output->current_retire_fence = -1;
 	}
 
-	uint32_t flags = output->is_gl_renderer ? WP_PRESENTATION_FEEDBACK_KIND_VSYNC : WP_PRESENTATION_FEEDBACK_INVALID;
+#ifdef ENABLE_DECON_GL
+	if (output->is_gl_renderer) {
+		weston_output_finish_frame_from_timer(&output->base);
+		return 0;
+	}
+#endif
+
 	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
-	weston_output_finish_frame(&output->base, &ts, flags);
+	weston_output_finish_frame(&output->base, &ts, WP_PRESENTATION_FEEDBACK_INVALID);
 
 	if (!output->is_gl_renderer) {
 		output->active_idx ^= 1;
@@ -153,6 +159,55 @@ decon_output_start_repaint_loop(struct weston_output *base)
 #ifndef HAL_PIXEL_FORMAT_RGBA_8888
 #define HAL_PIXEL_FORMAT_RGBA_8888 1
 #endif
+
+static void *
+decon_present_worker(void *data)
+{
+	struct decon_output *output = data;
+	const size_t gralloc_line_bytes = 1088 * 4;
+	const size_t fb_line_bytes = output->mode.width * 4;
+	int height = output->mode.height;
+	int fb_fd = output->backend->fb_fd;
+
+	while (1) {
+		pthread_mutex_lock(&output->present_mutex);
+		while (!output->has_pending_present && output->present_thread_running) {
+			pthread_cond_wait(&output->present_cond, &output->present_mutex);
+		}
+		if (!output->present_thread_running) {
+			pthread_mutex_unlock(&output->present_mutex);
+			break;
+		}
+
+		void *src = output->pending_src;
+		int y1 = output->pending_y1;
+		int y2 = output->pending_y2;
+		output->has_pending_present = false;
+		pthread_mutex_unlock(&output->present_mutex);
+
+		if (output->fb_mmap && src && fb_fd >= 0) {
+			char *s = (char *)src;
+			char *d = (char *)output->fb_mmap;
+
+			if (y1 < 0) y1 = 0;
+			if (y2 > height) y2 = height;
+			if (y2 <= y1) {
+				y1 = 0;
+				y2 = height;
+			}
+
+			for (int y = y1; y < y2; y++) {
+				memcpy(d + y * fb_line_bytes, s + y * gralloc_line_bytes, fb_line_bytes);
+			}
+
+			output->fb_var.xoffset = 0;
+			output->fb_var.yoffset = 0;
+			ioctl(fb_fd, FBIOPAN_DISPLAY, &output->fb_var);
+		}
+	}
+
+	return NULL;
+}
 
 static void
 decon_weston_gl_present_cb(void *user_data, struct ANativeWindow *window,
@@ -201,32 +256,33 @@ decon_weston_gl_present_cb(void *user_data, struct ANativeWindow *window,
 		}
 	}
 
-	/* Perform stride-corrected 2D scanout to /dev/fb0 and trigger AMOLED GRAM transfer */
+	/* Dispatch asynchronously to presentation worker thread (zero main-thread blocking) */
 	if (output->fb_mmap && src_ptr) {
-		const size_t gralloc_line_bytes = 1088 * 4;
-		const size_t fb_line_bytes = output->mode.width * 4;
-		char *src = (char *)src_ptr;
-		char *dst = (char *)output->fb_mmap;
-		int height = output->mode.height;
-
-		for (int y = 0; y < height; y++) {
-			memcpy(dst + y * fb_line_bytes, src + y * gralloc_line_bytes, fb_line_bytes);
+		pthread_mutex_lock(&output->present_mutex);
+		output->pending_src = src_ptr;
+		if (output->has_pending_present) {
+			if (output->damage_y1 < output->pending_y1)
+				output->pending_y1 = output->damage_y1;
+			if (output->damage_y2 > output->pending_y2)
+				output->pending_y2 = output->damage_y2;
+		} else {
+			output->pending_y1 = output->damage_y1;
+			output->pending_y2 = output->damage_y2;
+			output->has_pending_present = true;
 		}
-
-		output->fb_var.xoffset = 0;
-		output->fb_var.yoffset = 0;
-		ioctl(fb_fd, FBIOPAN_DISPLAY, &output->fb_var);
+		pthread_cond_signal(&output->present_cond);
+		pthread_mutex_unlock(&output->present_mutex);
 	}
 
-	/* Schedule frame completion in event loop after repaint_output returns */
+	/* Arm Weston frame timer to pace smooth 60 Hz frame callbacks */
 	if (output->finish_frame_timer) {
-		wl_event_source_timer_update(output->finish_frame_timer, 1);
+		weston_output_arm_frame_timer(&output->base, output->finish_frame_timer);
 	}
 
 	output->gl_repaint_count++;
-	if (output->gl_repaint_count <= 5 || output->gl_repaint_count % 60 == 0) {
-		weston_log("[+] decon [GL]: Hardware frame #%u presented to physical AMOLED glass via fb0 (DMA-BUF FD %d)\n",
-			   output->gl_repaint_count, dma_buf_fd);
+	if (output->gl_repaint_count <= 5 || output->gl_repaint_count % 120 == 0) {
+		weston_log("[+] decon [GL]: Hardware frame #%u queued to worker (damage y: %d..%d, DMA-BUF FD %d)\n",
+			   output->gl_repaint_count, output->damage_y1, output->damage_y2, dma_buf_fd);
 	}
 }
 #endif
@@ -250,6 +306,10 @@ decon_output_repaint(struct weston_output *base)
 
 #ifdef ENABLE_DECON_GL
 	if (output->is_gl_renderer) {
+		pixman_box32_t *extents = pixman_region32_extents(&damage);
+		output->damage_y1 = extents ? extents->y1 : 0;
+		output->damage_y2 = extents ? extents->y2 : output->mode.height;
+
 		/* Repaint scene into EGL on-screen surface (fbo = 0) */
 		ec->renderer->repaint_output(base, &damage, NULL);
 		pixman_region32_fini(&damage);
@@ -457,6 +517,17 @@ decon_output_enable(struct weston_output *base)
 					   output->fb_mmap, output->fb_mmap_len);
 			}
 		}
+
+		pthread_mutex_init(&output->present_mutex, NULL);
+		pthread_cond_init(&output->present_cond, NULL);
+		output->has_pending_present = false;
+		output->present_thread_running = true;
+		if (pthread_create(&output->present_thread, NULL, decon_present_worker, output) != 0) {
+			weston_log("[-] decon [GL]: Failed to create presentation worker thread\n");
+			output->present_thread_running = false;
+		} else {
+			weston_log("[+] decon [GL]: Presentation worker thread active for zero main-thread stall\n");
+		}
 	}
 #endif
 
@@ -561,6 +632,16 @@ decon_output_disable(struct weston_output *base)
 	}
 
 #ifdef ENABLE_DECON_GL
+	if (output->present_thread_running) {
+		pthread_mutex_lock(&output->present_mutex);
+		output->present_thread_running = false;
+		pthread_cond_signal(&output->present_cond);
+		pthread_mutex_unlock(&output->present_mutex);
+		pthread_join(output->present_thread, NULL);
+		pthread_mutex_destroy(&output->present_mutex);
+		pthread_cond_destroy(&output->present_cond);
+	}
+
 	if (output->is_gl_renderer && ec->renderer && ec->renderer->gl) {
 		ec->renderer->gl->output_destroy(&output->base);
 		output->native_window = NULL;
